@@ -80,6 +80,26 @@ Each user runs this server locally with their own OAuth app and their own ad acc
 6. `node scripts/check.js` refreshes the token and tests `/me` and the ad account (read-only).
 7. Register: `claude mcp add --scope user snap-ads -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`, then restart Claude Code.
 
+## Use it from Claude or ChatGPT
+This is a local MCP server (stdio). Credentials stay in your `.env`; the AI app only starts the process.
+
+**Claude Code** (step 7 above): `claude mcp add --scope user snap-ads -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`, then restart. Check with `claude mcp list`.
+
+**Claude Desktop**: open Settings > Developer > Edit Config and add this to `claude_desktop_config.json`, then fully quit and reopen the app:
+```json
+{
+  "mcpServers": {
+    "snap-ads": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"]
+    }
+  }
+}
+```
+Use the absolute path to `node` as `command` if the app cannot find it. The server reads `.env` from its own folder, so no secrets go in this file.
+
+**ChatGPT**: ChatGPT connects to *remote* MCP servers (an https URL) through its connectors / developer mode, not to local stdio programs. This server is local only, so it cannot be added to ChatGPT as it is. Doing that would need a hosted version with per-user OAuth and encrypted token storage (see "Not built"). Do not expose this server publicly as it is: it can change real ad campaigns. Other desktop MCP clients that launch local stdio servers (Cursor, VS Code, Cline) work with the same `command` and `args` as above.
+
 ## Verified live (against the real Snapchat API)
 Everything above has run live except the items under "Not run live". That includes: pause/enable (single and bulk), budget, bid, targeting (countries, age, gender, interests, devices, include segments, remove exclusions), schedule, rename, bulk edits, undo, campaign / ad squad copy, ad clone, creative clone, create campaign, create ad squad (max bid and auto-bid, with exclusions), lookalike, pixel audience, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), all reports (including async CSV), health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 Not run live on their own: `snap_create_creative` and `snap_create_ad` (they ran inside the influencer flow), a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, and a customer-list upload of real data.
