@@ -2,11 +2,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadEnv } from "./env.js";
+import { loadPolicy } from "./policy.js";
 import { SnapClient } from "./snap.js";
 import { registerTools } from "./tools.js";
 
 loadEnv();
-const server = new McpServer({ name: "snap-ads-mcp", version: "0.1.0" });
-// Re-read .env whenever a token is needed, so editing it does not require a restart.
-registerTools(server, new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }) }));
+let policy;
+try {
+  // Safety settings are validated before anything else. An invalid value stops the server instead of disabling a limit.
+  policy = loadPolicy(process.env);
+} catch (e) {
+  process.stderr.write(`[snap-ads-mcp] ${e.message}\n`);
+  process.exit(1);
+}
+// Snapshot of the non-secret settings taken at startup. Later edits to .env do not change limits or the target account.
+const settings = { ...process.env };
+const server = new McpServer({ name: "snap-ads-mcp", version: "0.2.0" });
+// Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
+const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
+registerTools(server, client, settings);
 await server.connect(new StdioServerTransport());

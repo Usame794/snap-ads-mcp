@@ -1,5 +1,28 @@
 // Copying a campaign (with its ad squads and optionally ads). Everything is created PAUSED.
 import { logChange } from "./changes.js";
+import { checkDailyBudget, checkLifetimeBudget, loadPolicy } from "./policy.js";
+
+// Budget fields that carry money. Daily ones are capped per entity, lifetime ones by the lifetime limit.
+const DAILY_FIELDS = ["daily_budget_micro"];
+const LIFETIME_FIELDS = ["lifetime_budget_micro", "lifetime_spend_cap_micro"];
+
+// Scales every money field of a copied object and checks the result against the absolute limits.
+function scaleBudgets(obj, scale, policy, label) {
+  for (const f of DAILY_FIELDS) {
+    if (obj[f] == null) continue;
+    obj[f] = Math.round(obj[f] * scale);
+    checkDailyBudget(policy, { value: obj[f] / 1e6, what: `Daily budget of ${label}` });
+  }
+  for (const f of LIFETIME_FIELDS) {
+    if (obj[f] == null) continue;
+    obj[f] = Math.round(obj[f] * scale);
+    checkLifetimeBudget(policy, obj[f] / 1e6, `Lifetime budget of ${label}`);
+  }
+  if (obj.bid_micro != null && obj.bid_micro / 1e6 > policy.maxBid) {
+    throw new Error(`Max bid of ${label} is ${obj.bid_micro / 1e6}, above the absolute limit of ${policy.maxBid} (SNAP_MAX_BID). Not copying.`);
+  }
+}
+const lifetimeOf = (o) => LIFETIME_FIELDS.reduce((n, f) => n + (o[f] ?? 0), 0) / 1e6;
 
 const startIn = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
 
@@ -10,27 +33,30 @@ function retime(obj, start) {
 }
 
 // Pure function: builds the objects that would be created, without touching the API.
-export function planCopy({ campaign, squads, adsBySquad, newName, includeAds = true, budgetScale = 1, now = startIn(10) }) {
+export function planCopy({ campaign, squads, adsBySquad, newName, includeAds = true, budgetScale = 1, now = startIn(10), env = process.env }) {
+  const policy = loadPolicy(env);
   if (!newName || !newName.trim()) throw new Error("new_name is required");
   if (!(budgetScale > 0 && budgetScale <= 2)) throw new Error("budget_scale must be between 0 and 2");
   const newCampaign = retime({ ...campaign, name: newName.trim(), status: "PAUSED" }, now);
-  if (newCampaign.daily_budget_micro != null) newCampaign.daily_budget_micro = Math.round(newCampaign.daily_budget_micro * budgetScale);
+  scaleBudgets(newCampaign, budgetScale, policy, `campaign "${newCampaign.name}"`);
   const plannedSquads = squads.map((s) => {
     const obj = retime({ ...s, status: "PAUSED" }, now);
-    if (obj.daily_budget_micro != null) obj.daily_budget_micro = Math.round(obj.daily_budget_micro * budgetScale);
+    scaleBudgets(obj, budgetScale, policy, `ad squad "${obj.name}"`);
     const ads = includeAds ? (adsBySquad[s.id] ?? []).map((a) => ({ ...a, status: "PAUSED" })) : [];
     return { sourceId: s.id, obj, ads };
   });
   const totalBudget =
     (newCampaign.daily_budget_micro ?? 0) / 1e6 + plannedSquads.reduce((n, s) => n + (s.obj.daily_budget_micro ?? 0) / 1e6, 0);
+  const totalLifetime = lifetimeOf(newCampaign) + plannedSquads.reduce((n, s) => n + lifetimeOf(s.obj), 0);
   return {
     campaign: newCampaign,
     squads: plannedSquads,
     summary: {
       new_campaign_name: newCampaign.name,
-      ad_squads: plannedSquads.map((s) => ({ name: s.obj.name, daily_budget: (s.obj.daily_budget_micro ?? 0) / 1e6, ads: s.ads.length })),
+      ad_squads: plannedSquads.map((s) => ({ name: s.obj.name, daily_budget: (s.obj.daily_budget_micro ?? 0) / 1e6, ...(lifetimeOf(s.obj) ? { lifetime_budget: lifetimeOf(s.obj) } : {}), ads: s.ads.length })),
       total_ads: plannedSquads.reduce((n, s) => n + s.ads.length, 0),
       total_daily_budget_if_enabled: totalBudget,
+      ...(totalLifetime ? { total_lifetime_budget_if_enabled: totalLifetime } : {}),
       status_of_everything: "PAUSED",
     },
   };
@@ -88,14 +114,15 @@ export async function executeCopy({ client, plan, sourceCampaignId, logFile, res
 }
 
 // Copy one ad squad (optionally with its ads) into a campaign. Everything is PAUSED.
-export function planCopySquad({ squad, ads = [], newName, budgetScale = 1, now = startIn(10) }) {
+export function planCopySquad({ squad, ads = [], newName, budgetScale = 1, now = startIn(10), env = process.env }) {
+  const policy = loadPolicy(env);
   if (!(budgetScale > 0 && budgetScale <= 2)) throw new Error("budget_scale must be between 0 and 2");
   const obj = retime({ ...squad, name: (newName?.trim() || squad.name), status: "PAUSED" }, now);
-  if (obj.daily_budget_micro != null) obj.daily_budget_micro = Math.round(obj.daily_budget_micro * budgetScale);
+  scaleBudgets(obj, budgetScale, policy, `ad squad "${obj.name}"`);
   return {
     obj,
     ads: ads.map((a) => ({ ...a, status: "PAUSED" })),
-    summary: { name: obj.name, daily_budget: (obj.daily_budget_micro ?? 0) / 1e6, ads: ads.length, status: "PAUSED" },
+    summary: { name: obj.name, daily_budget: (obj.daily_budget_micro ?? 0) / 1e6, ...(lifetimeOf(obj) ? { lifetime_budget: lifetimeOf(obj) } : {}), ads: ads.length, status: "PAUSED" },
   };
 }
 

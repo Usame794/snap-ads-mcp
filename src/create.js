@@ -2,6 +2,7 @@
 import { openSync, closeSync, readSync, readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { logChange } from "./changes.js";
+import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
 
 const OBJECTIVES = ["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"];
 const startIn = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
@@ -103,12 +104,16 @@ export async function uploadMedia({ client, adAccountId, filePath, name, logFile
 }
 
 // A new ad squad from a few choices. Always PAUSED. Defaults suit web purchase squads.
-export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries = ["sa"], minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", now = startIn(10) }) {
+export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries = ["sa"], minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", now = startIn(10), env = process.env }) {
+  const policy = loadPolicy(env);
   const n = String(name ?? "").trim();
   if (n.length < 3) throw new Error("name must be at least 3 characters");
-  if (!(dailyBudget >= 5)) throw new Error("daily_budget must be at least 5 (account currency)");
+  if (!(dailyBudget >= policy.minDailyBudget)) throw new Error(`daily_budget must be at least ${policy.minDailyBudget} (account currency)`);
+  checkDailyBudget(policy, { value: dailyBudget, what: "daily_budget" });
   if (!["LOWEST_COST_WITH_MAX_BID", "AUTO_BID"].includes(bidStrategy)) throw new Error("bid_strategy must be LOWEST_COST_WITH_MAX_BID or AUTO_BID");
   if (bidStrategy === "LOWEST_COST_WITH_MAX_BID" && !(bid > 0)) throw new Error("bid must be greater than 0 for a max-bid squad");
+  if (bidStrategy === "LOWEST_COST_WITH_MAX_BID") checkBid(policy, { value: bid, what: "bid" });
+  if (bidStrategy === "AUTO_BID" && bid != null) throw new Error("bid is not used with AUTO_BID; leave it out");
   if (!pixelId) throw new Error("pixel_id is required (or set SNAP_PIXEL_ID)");
   if (!["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"].includes(conversionWindow)) throw new Error("conversion_window must be SWIPE_7DAY or SWIPE_28DAY_VIEW_1DAY");
   const geos = countries.map((c) => String(c).trim().toLowerCase());

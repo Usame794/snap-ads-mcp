@@ -66,8 +66,10 @@ export async function executeBulkStatus({ client, entity, plan, status, logFile 
     try {
       const r = await applyChange({ client, entity, id: item.id, confirm: true, plan: (cur) => planStatus(cur, status), logFile });
       done.push({ name: item.name, from: item.from, to: status, verified: r.verified });
+      if (!r.verified) throw new Error(`"${item.name}" was sent but could not be verified (${(r.warnings ?? []).join(" ")}) Stopping`);
     } catch (e) {
-      const notAttempted = plan.toChange.slice(done.length + 1).map((x) => x.name);
+      const at = plan.toChange.indexOf(item);
+      const notAttempted = plan.toChange.slice(at + 1).map((x) => x.name);
       const err = new Error(`${e.message}. Changed so far: ${JSON.stringify(done)}. Failed on: "${item.name}". Not attempted: ${JSON.stringify(notAttempted)}`);
       err.done = done;
       throw err;

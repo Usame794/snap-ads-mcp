@@ -2,18 +2,24 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "./env.js";
+import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
 
 export const LOG_FILE = join(ROOT, "changes.log.jsonl");
 
 const micro = (n) => Math.round(n * 1_000_000);
 const unmicro = (m) => m / 1_000_000;
 
+// Kept for callers of the old helper. All parsing and validation lives in policy.js (invalid settings throw).
 export function limits(env = process.env) {
-  return {
-    maxIncreasePct: Number(env.SNAP_MAX_BUDGET_INCREASE_PCT ?? 100),
-    minDailyBudget: Number(env.SNAP_MIN_DAILY_BUDGET ?? 5),
-  };
+  const p = loadPolicy(env);
+  return { maxIncreasePct: p.maxIncreasePct, minDailyBudget: p.minDailyBudget, maxDailyBudget: p.maxDailyBudget, maxBid: p.maxBid };
 }
+
+// `history(id, field)` returns the micro value the field had at the start of the last 24h (from the change log), or null.
+const windowStart = (history, current, field) => {
+  const v = history ? history(current.id, field) : null;
+  return v == null ? null : unmicro(v);
+};
 
 // Each planner returns { patch, summary } or throws when the change is not allowed.
 export function planStatus(current, status) {
@@ -22,17 +28,14 @@ export function planStatus(current, status) {
   return { patch: { status }, summary: `status ${current.status} -> ${status}` };
 }
 
-export function planBudget(current, dailyBudget, env = process.env) {
-  const { maxIncreasePct, minDailyBudget } = limits(env);
+export function planBudget(current, dailyBudget, env = process.env, { history } = {}) {
+  const policy = loadPolicy(env);
   if (current.daily_budget_micro == null) {
     throw new Error("This entity has no daily_budget_micro (budget may be set on the campaign, or it uses a lifetime budget). Not changing it.");
   }
-  if (!(dailyBudget >= minDailyBudget)) throw new Error(`Daily budget must be at least ${minDailyBudget} (account currency)`);
   const before = unmicro(current.daily_budget_micro);
+  checkDailyBudget(policy, { before, value: dailyBudget, windowStart: windowStart(history, current, "daily_budget_micro") });
   const incPct = ((dailyBudget - before) / before) * 100;
-  if (incPct > maxIncreasePct) {
-    throw new Error(`Refusing a ${incPct.toFixed(0)}% increase (limit ${maxIncreasePct}%). Raise in smaller steps or change SNAP_MAX_BUDGET_INCREASE_PCT.`);
-  }
   if (dailyBudget === before) throw new Error("Budget is already that value");
   return {
     patch: { daily_budget_micro: micro(dailyBudget) },
@@ -60,13 +63,13 @@ export function planRename(current, newName) {
 }
 
 // Only for ad squads that use a max bid (bid_micro). Increases are capped; auto-bid squads are refused.
-export function planBid(current, bid, env = process.env) {
-  const maxIncreasePct = Number(env.SNAP_MAX_BID_INCREASE_PCT ?? 50);
+export function planBid(current, bid, env = process.env, { history } = {}) {
+  const policy = loadPolicy(env);
   if (current.bid_micro == null) throw new Error("This ad squad has no bid_micro (it uses auto-bid). Not changing it.");
   if (!(bid > 0)) throw new Error("bid must be greater than 0");
   const before = unmicro(current.bid_micro);
+  checkBid(policy, { before, value: bid, windowStart: windowStart(history, current, "bid_micro") });
   const incPct = ((bid - before) / before) * 100;
-  if (incPct > maxIncreasePct) throw new Error(`Refusing a ${incPct.toFixed(0)}% bid increase (limit ${maxIncreasePct}%). Raise in smaller steps.`);
   if (bid === before) throw new Error("Bid is already that value");
   return { patch: { bid_micro: micro(bid) }, summary: `max bid ${before} -> ${bid} (${incPct >= 0 ? "+" : ""}${incPct.toFixed(0)}%)` };
 }
@@ -184,21 +187,50 @@ export function containsDeep(actual, patch) {
 
 const canonical = (x) => JSON.stringify(x, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v));
 
-// Runs a planned change. Without confirm it only previews; with confirm it sends the update and re-reads to verify.
-export async function applyChange({ client, entity, id, plan, confirm, logFile, logExtra }) {
+// Step 1: read the item and plan the change (throws when the change is not allowed). Nothing is sent.
+export async function prepareChange({ client, entity, id, plan }) {
   const current = await client.getEntity(entity, id);
   const { patch, summary } = plan(current);
-  const label = `${entity} ${id} (${current.name ?? "unnamed"})`;
-  if (!confirm) {
-    return { applied: false, dry_run: true, target: label, change: summary, note: "Nothing was sent. Re-run with confirm=true to apply." };
-  }
+  return { entity, id, current, patch, summary, label: `${entity} ${id} (${current.name ?? "unnamed"})` };
+}
+
+export const previewOf = (p) => ({ applied: false, dry_run: true, target: p.label, change: p.summary, note: "Nothing was sent. Re-run with confirm=true to apply." });
+
+// Step 2: send exactly the prepared change, read it back, and record it. Once the update is accepted this never throws:
+// a failed read-back or a failed log write is reported in the result, so an applied change is never mistaken for a failure.
+export async function executeChange({ client, prepared, logFile, logExtra }) {
+  const { entity, id, current, patch, summary, label } = prepared;
   const updated = await client.updateEntity(entity, { ...current, ...patch });
-  const after = await client.getEntity(entity, id);
-  const verified = Object.keys(patch).every((k) => containsDeep(after[k], patch[k]));
-  const before = Object.fromEntries(Object.keys(patch).map((k) => [k, current[k] === undefined ? null : current[k]]));
-  const afterState = Object.fromEntries(Object.keys(patch).map((k) => [k, after[k] === undefined ? null : after[k]]));
-  logChange({ entity, id, name: current.name, change: summary, verified, patch, before, after: afterState, ...(logExtra ?? {}) }, logFile);
-  return { applied: true, target: label, change: summary, verified, returned_status: updated?.status ?? after.status };
+  let after = null;
+  let verifyError;
+  try {
+    after = await client.getEntity(entity, id);
+  } catch (e) {
+    verifyError = e.message;
+  }
+  const keys = Object.keys(patch);
+  const verified = after ? keys.every((k) => containsDeep(after[k], patch[k])) : false;
+  const before = Object.fromEntries(keys.map((k) => [k, current[k] === undefined ? null : current[k]]));
+  const afterState = after ? Object.fromEntries(keys.map((k) => [k, after[k] === undefined ? null : after[k]])) : null;
+  let logError;
+  try {
+    logChange({ entity, id, name: current.name, change: summary, verified, patch, before, after: afterState, ...(verifyError ? { verify_error: verifyError } : {}), ...(logExtra ?? {}) }, logFile);
+  } catch (e) {
+    logError = String(e.code ?? e.message);
+    process.stderr.write(`[snap-ads-mcp] CHANGE LOG WRITE FAILED after applying "${summary}" to ${label}: ${logError}\n`);
+  }
+  const warnings = [];
+  if (verifyError) warnings.push(`The update was accepted by Snap but reading it back failed (${verifyError}). Treat it as APPLIED and check the item before doing anything else.`);
+  else if (!verified) warnings.push("The update was accepted by Snap but the item does not show the new values. Check it in Ads Manager before doing anything else.");
+  if (logError) warnings.push(`The change was applied but could not be written to the change log (${logError}); it cannot be undone with snap_undo.`);
+  return { applied: true, target: label, change: summary, verified, returned_status: updated?.status ?? after?.status, ...(warnings.length ? { warnings } : {}) };
+}
+
+// Plan and (with confirm) apply in one go. Used by scripts and tests; the MCP tools go through prepare/execute with an approval.
+export async function applyChange({ client, entity, id, plan, confirm, logFile, logExtra }) {
+  const prepared = await prepareChange({ client, entity, id, plan });
+  if (!confirm) return previewOf(prepared);
+  return executeChange({ client, prepared, logFile, logExtra });
 }
 
 // Undo support: only entries that recorded `before` can be reverted, and only if nothing changed the fields since.
@@ -208,7 +240,7 @@ export function undoableEntries(file = LOG_FILE) {
   return log.filter((e) => e.before && e.patch && e.id && e.entity && e.verified !== false && !e.undoes && !undone.has(e.at) && !String(e.change).startsWith("undo:"));
 }
 
-export function planUndo(entry, current, { force = false } = {}) {
+export function planUndo(entry, current, { force = false, env = process.env, history } = {}) {
   const keys = Object.keys(entry.patch);
   if (!force) {
     const moved = keys.filter((k) => {
@@ -223,5 +255,14 @@ export function planUndo(entry, current, { force = false } = {}) {
   const missing = keys.filter((k) => entry.before[k] === null || entry.before[k] === undefined);
   if (missing.length) throw new Error(`${missing.join(", ")} did not exist before this edit, so it cannot be undone automatically`);
   const patch = Object.fromEntries(keys.map((k) => [k, entry.before[k]]));
+  // An undo is a change like any other: putting money back up goes through the same limits. (Re-enabling is checked by the
+  // caller, which can read what the activation would start.)
+  const policy = loadPolicy(env);
+  if (typeof patch.daily_budget_micro === "number" && current.daily_budget_micro != null) {
+    checkDailyBudget(policy, { before: unmicro(current.daily_budget_micro), value: unmicro(patch.daily_budget_micro), windowStart: windowStart(history, current, "daily_budget_micro"), restoring: true, what: "Daily budget (undo)" });
+  }
+  if (typeof patch.bid_micro === "number" && current.bid_micro != null) {
+    checkBid(policy, { before: unmicro(current.bid_micro), value: unmicro(patch.bid_micro), windowStart: windowStart(history, current, "bid_micro"), restoring: true, what: "Max bid (undo)" });
+  }
   return { patch, summary: `undo: ${entry.change}` };
 }

@@ -5,13 +5,36 @@ Local MCP server for the Snapchat Marketing API. It reads, edits and creates cam
 > **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool changes real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Review every preview before confirming.
 
 ## Safety rules (built in)
-- Every write tool **previews by default**. Nothing is sent unless `confirm=true`.
-- Everything that creates something (copies, clones, new ads, new creatives) is created **PAUSED**. Enabling is a separate, confirmed step.
+- Every write tool works in **two steps**. `confirm=false` (the default) returns a preview and a single-use `approval_token`. To apply, the same arguments are sent again with `confirm=true` and that token. The token is bound to the tool, the ad account, the arguments and the state of the items at preview time: if anything changed, or the token is reused, expired or from another request, nothing is sent.
+- Everything that creates something (copies, clones, new ads, new creatives) is created **PAUSED**. Enabling is a separate step, and its preview shows the daily budget that would really start delivering (for a campaign: the budgets of its ACTIVE ad squads).
+- **Absolute limits**, in account currency, apply to every path that can raise money (set, bulk, create, copy, undo, enable): see the table below. On top of them, a budget may rise at most +100% and a bid +50% per step **and per 24 hours** (counted from this server's change log), so repeating a step does not compound.
+- Writes only touch items of the configured `SNAP_AD_ACCOUNT_ID`. Ids are validated before they are used.
 - The only delete tool is `snap_delete`, behind many guards. Status can only be `ACTIVE` or `PAUSED`.
-- Limits: budget increases max +100% per step (`SNAP_MAX_BUDGET_INCREASE_PCT`), minimum daily budget (`SNAP_MIN_DAILY_BUDGET`), bid increases max +50% (`SNAP_MAX_BID_INCREASE_PCT`), max 20 items per bulk action.
-- Changes are read back to verify and appended to `changes.log.jsonl`.
-- Multi-step creates (copy, influencer flow) stop at the first failure and report exactly what was already created.
-- Secrets live only in `.env` (git-ignored). The server re-reads `.env` when it needs a token.
+- Every write is recorded in `changes.log.jsonl`: an intent record before anything is sent (if it cannot be written, the operation does not run) and a result record after, with tool, account, target ids, redacted arguments, and before/after values for edits. Credentials are never logged; ad codes are masked.
+- Multi-step creates (copy, influencer flow) stop at the first failure and report exactly what was already created. A write that fails in transit is never re-sent; it is reported as "outcome unknown".
+- Safety settings are validated when the server starts. An invalid value (for example `100%`) **stops the server** instead of switching the limit off. Limits and the target account are fixed until restart; only the OAuth credentials are re-read from `.env`.
+
+### What the approval token is not
+The token proves that this exact change was previewed and that nothing moved since. It does **not** prove that a person looked at it: the AI client receives the token and can send it back by itself. Human authorization is the permission prompt of your MCP client, so **do not auto-approve the write tools**. Tools are annotated (`readOnlyHint`, `destructiveHint`) so a client can auto-allow reads only. If your client supports MCP elicitation, `SNAP_HUMAN_APPROVAL=elicit` makes the server ask you directly before every write and refuse when it cannot ask. `SNAP_READ_ONLY=1` turns every write off.
+
+### Safety settings (`.env`, all optional, restart to apply)
+| Setting | Default | Meaning |
+|---|---|---|
+| `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
+| `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |
+| `SNAP_MAX_BID` | 50 | Highest max bid |
+| `SNAP_MAX_BUDGET_INCREASE_PCT` | 100 | Largest budget increase per step and per 24 hours |
+| `SNAP_MAX_BID_INCREASE_PCT` | 50 | Largest bid increase per step and per 24 hours |
+| `SNAP_MAX_LIFETIME_BUDGET` | 30 x max daily | Highest lifetime budget a copy may carry or an enable may start |
+| `SNAP_MAX_ACTIVATION_DAILY_BUDGET` | 5 x max daily | Most daily budget one enable call (or undo of a pause) may start |
+| `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
+| `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
+| `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
+| `SNAP_APPROVAL_TTL_SECONDS` | 600 | Lifetime of an approval token |
+| `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
+| `SNAP_HTTP_TIMEOUT_MS` | 60000 | Deadline for each API request |
+
+Existing items above a limit can still be read, lowered and paused, but not raised or enabled until the owner raises the limit. The 24-hour rule and the audit trail rely on `changes.log.jsonl`; changes made in Ads Manager are not counted. Keep `.env` and the log out of reach of the AI client's file tools (for Claude Code: a `Read`/`Edit` deny rule for the project folder).
 
 ## Tools
 | Tool | Type |

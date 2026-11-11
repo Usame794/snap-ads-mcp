@@ -1,7 +1,8 @@
+import { statSync } from "node:fs";
 import { z } from "zod";
 import { SnapClient } from "./snap.js";
-import { applyChange, planBid, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, readLog, undoableEntries } from "./changes.js";
-import { bulkEdit, plans } from "./bulk-edit.js";
+import { executeChange, LOG_FILE, planBid, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, prepareChange, previewOf, readLog, undoableEntries } from "./changes.js";
+import { executeBulkEdit, plans, prepareBulkEdit } from "./bulk-edit.js";
 import { runBatch, checkBatch } from "./influencer-batch.js";
 import { createWithAutoStrip, planCloneCreative } from "./creative-tools.js";
 import { buildCustomerSegment, readIdentifiers, uploadCustomerList } from "./customer-list.js";
@@ -16,22 +17,21 @@ import { executeCopy, executeCopySquad, loadSource, planCopy, planCopySquad } fr
 import { executeCloneAd, loadTargets, planCloneAd } from "./clone-ad.js";
 import { executeBulkStatus, loadBulkItems, planBulkStatus } from "./bulk.js";
 import { buildAd, buildCreative, claimAdCode, getMedia, runInfluencerFlow, validateAdCode } from "./influencer.js";
+import { loadPolicy } from "./policy.js";
+import { ApprovalStore, digest } from "./approval.js";
+import { auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
+import { Ownership } from "./ownership.js";
+import { activationImpact } from "./activation.js";
 
 const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (e) => ({ isError: true, content: [{ type: "text", text: `Error: ${e.message}` }] });
-const wrap = (fn) => async (args) => {
-  try {
-    return text(await fn(args));
-  } catch (e) {
-    return fail(e);
-  }
-};
 
 const brief = (o) => ({
   id: o.id,
   name: o.name,
   status: o.status,
   daily_budget: o.daily_budget_micro != null ? o.daily_budget_micro / 1e6 : undefined,
+  lifetime_budget: o.lifetime_budget_micro != null ? o.lifetime_budget_micro / 1e6 : undefined,
   campaign_id: o.campaign_id,
   ad_squad_id: o.ad_squad_id,
   optimization_goal: o.optimization_goal,
@@ -39,534 +39,304 @@ const brief = (o) => ({
   updated_at: o.updated_at,
 });
 
+// Ids are placed in URL paths, so only id-safe characters are accepted (no '/', '.', '?', '#', '%').
+const id = () => z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "must be an id (letters, digits, '-' or '_')");
+const TWO_STEP = " Two steps: confirm=false returns a preview and an approval_token; to apply, repeat the same arguments with confirm=true and that approval_token.";
+
 export function registerTools(server, client, env = process.env) {
-  const defaultAccount = () => env.SNAP_AD_ACCOUNT_ID;
-  const account = (id) => {
-    const a = id ?? defaultAccount();
+  // Safety settings are parsed once, here. Invalid settings throw, so the server does not start with a limit switched off.
+  const policy = loadPolicy(env);
+  // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
+  const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
+  const logFile = env.SNAP_LOG_FILE || LOG_FILE;
+  const approvals = new ApprovalStore({ ttlMs: policy.approvalTtlSeconds * 1000, repeatWindowMs: policy.repeatWindowSeconds * 1000 });
+  const ownership = new Ownership(client);
+  const history = (entityId, field) => windowStartMicro(logFile, entityId, field);
+
+  const account = (given) => {
+    const a = given ?? cfg.account;
     if (!a) throw new Error("ad_account_id missing and SNAP_AD_ACCOUNT_ID not set");
     return a;
   };
+  const brandProfile = (given) => {
+    const p = given ?? cfg.profile;
+    if (!p) throw new Error("profile_id missing and SNAP_BRAND_PROFILE_ID not set");
+    return p;
+  };
   const entityEnum = z.enum(["campaign", "adsquad", "ad"]);
 
-  server.registerTool(
-    "snap_ping",
-    { description: "Check the Snap credentials work and show who is authorized.", inputSchema: {} },
-    wrap(async () => {
-      const me = await client.request("GET", "/me");
-      return { ok: true, me: me.me ?? me };
-    }),
-  );
+  // Limits are expressed in account currency. When SNAP_ACCOUNT_CURRENCY is set, writes are refused unless the account matches.
+  let currencyCheck = null;
+  const ensureCurrency = () => {
+    if (!policy.currency) return null;
+    currencyCheck ??= client.request("GET", `/adaccounts/${account()}`).then((d) => {
+      const actual = d.adaccounts?.[0]?.adaccount?.currency;
+      if (actual !== policy.currency) throw new Error(`The ad account currency is ${actual ?? "unknown"} but SNAP_ACCOUNT_CURRENCY is ${policy.currency}. The limits would mean something else, so writes are refused.`);
+      return actual;
+    });
+    return currencyCheck.catch((e) => {
+      currencyCheck = null;
+      throw e;
+    });
+  };
 
-  server.registerTool(
+  // Optional trusted human signal: ask the person through the MCP client itself (elicitation). Fails closed.
+  async function humanApproval(tool, preview) {
+    if (policy.humanApproval !== "elicit") return;
+    let res;
+    try {
+      res = await server.server.elicitInput({
+        message: `Approve ${tool} on ad account ${cfg.account ?? "?"}?\n${JSON.stringify(redact(preview), null, 1).slice(0, 1800)}`,
+        requestedSchema: { type: "object", properties: { approve: { type: "boolean", title: "Approve this change", description: "Tick to let this exact change run." } }, required: ["approve"] },
+      });
+    } catch (e) {
+      throw new Error(`A human approval is required (SNAP_HUMAN_APPROVAL=elicit) but this MCP client could not ask for one (${e.message}). Nothing was sent.`);
+    }
+    if (res?.action !== "accept" || res.content?.approve !== true) throw new Error("The user did not approve this change. Nothing was sent.");
+  }
+
+  const READ = { readOnlyHint: true, openWorldHint: true };
+  const read = (name, { description, shape = {}, annotations = READ }, fn) =>
+    server.registerTool(name, { description, inputSchema: z.object(shape).strict(), annotations }, async (args) => {
+      try {
+        return text(await fn(args));
+      } catch (e) {
+        return fail(e);
+      }
+    });
+
+  const confirmField = z.boolean().default(false).describe("false = preview only (nothing sent). true = apply; needs approval_token from the preview.");
+  const tokenField = z.string().max(200).optional().describe("The approval_token returned by the preview of this exact request. Required with confirm=true.");
+
+  // Every mutating tool goes through this one path:
+  //   prepare (read + validate + plan, nothing sent) -> ownership -> preview with approval token
+  //   confirm: token must match the same request AND the same target state -> optional human approval
+  //            -> audit intent written -> execute -> audit result written.
+  // `prepare(params)` returns { preview, execute, targets?, state?, blocked?, targetIds? }.
+  const write = (name, { description, shape, destructive = false, repeatGuard = false, bind = (p) => p }, prepare) =>
+    server.registerTool(
+      name,
+      {
+        description: description + TWO_STEP,
+        inputSchema: z.object({ ...shape, confirm: confirmField, approval_token: tokenField }).strict(),
+        annotations: { readOnlyHint: false, destructiveHint: destructive, idempotentHint: false, openWorldHint: true },
+      },
+      async (args) => {
+        try {
+          const { confirm, approval_token, ...params } = args;
+          if (confirm) {
+            if (policy.readOnly) throw new Error("This server is in read-only mode (SNAP_READ_ONLY). Nothing was sent.");
+            approvals.precheck(name, approval_token);
+          }
+          await ensureCurrency();
+          const p = await prepare(params);
+          for (const t of p.targets ?? []) await ownership.assert(t.entity, t.obj, account());
+          const targetIds = p.targetIds ?? (p.targets ?? []).map((t) => t.obj.id);
+          const requestDigest = digest({ tool: name, account: cfg.account ?? null, params: bind(params) });
+          const binding = digest({ requestDigest, state: p.state ?? null });
+          if (!confirm) {
+            if (p.blocked) return text(p.preview);
+            const repeat = repeatGuard ? approvals.recentRepeat(requestDigest) : null;
+            const issued = approvals.issue(name, binding);
+            return text({
+              ...p.preview,
+              ...(repeat ? { duplicate_warning: `An identical request was executed ${repeat.seconds_ago}s ago and will be refused if confirmed: ${JSON.stringify(repeat.summary)}` } : {}),
+              ...(policy.readOnly ? { read_only: "SNAP_READ_ONLY is on: this preview cannot be applied." } : {}),
+              ad_account: cfg.account ?? null,
+              approval_token: issued.token,
+              approval_expires_in_seconds: issued.expires_in_seconds,
+            });
+          }
+          if (p.blocked) throw new Error(p.blocked);
+          approvals.consume(name, approval_token, binding);
+          if (repeatGuard) {
+            const repeat = approvals.recentRepeat(requestDigest);
+            if (repeat) throw new Error(`An identical ${name} request was already executed ${repeat.seconds_ago}s ago (${JSON.stringify(repeat.summary)}). Not repeating it. If a second one is really wanted, give it a different name or wait ${policy.repeatWindowSeconds}s.`);
+          }
+          await humanApproval(name, p.preview);
+          const event = { tool: name, account: cfg.account ?? null, targets: targetIds };
+          const event_id = auditIntent(logFile, { ...event, params, preview: p.preview });
+          let result;
+          try {
+            result = await p.execute();
+          } catch (e) {
+            auditResult(logFile, { ...event, event_id, ok: false, error: e.message });
+            throw e;
+          }
+          const logged = auditResult(logFile, { ...event, event_id, ok: true, result });
+          if (repeatGuard) approvals.recordExecuted(requestDigest, { audit_event_id: event_id, at: new Date().toISOString() });
+          return text({ ...result, audit_event_id: event_id, ...(logged.logged ? {} : { audit_log_warning: `The operation ran but its result could not be written to the audit log (${logged.error}). Tell the user.` }) });
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+
+  // One planned edit of one existing item.
+  const change = async (entity, entityId, plan, { activation = false, logExtra, extraPreview } = {}) => {
+    const prepared = await prepareChange({ client, entity, id: entityId, plan });
+    const impact = activation && prepared.patch.status === "ACTIVE" ? await activationImpact(client, entity, [prepared.current], policy) : undefined;
+    return {
+      targets: [{ entity, obj: prepared.current }],
+      state: { current: prepared.current, impact: impact ?? null },
+      preview: { ...previewOf(prepared), ...(impact ? { activation: impact } : {}), ...(extraPreview ?? {}) },
+      execute: async () => ({ ...(await executeChange({ client, prepared, logFile, logExtra })), ...(extraPreview ?? {}) }),
+    };
+  };
+
+  const fileState = (path) => {
+    const st = statSync(path);
+    return { size: st.size, mtimeMs: st.mtimeMs };
+  };
+
+  // ---------------------------------------------------------------- read tools
+
+  read("snap_ping", { description: "Check the Snap credentials work and show who is authorized." }, async () => {
+    const me = await client.request("GET", "/me");
+    return { ok: true, me: me.me ?? me };
+  });
+
+  read(
     "snap_list_campaigns",
     {
       description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given.",
-      inputSchema: { ad_account_id: z.string().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
+      shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
     },
-    wrap(async ({ ad_account_id, status, limit }) => {
+    async ({ ad_account_id, status, limit }) => {
       const data = await client.request("GET", `/adaccounts/${account(ad_account_id)}/campaigns`, { query: { limit } });
       const rows = SnapClient.unwrap(data, "campaign").map(brief);
       return rows.filter((r) => !status || r.status === status);
-    }),
+    },
   );
 
-  server.registerTool(
+  read(
     "snap_list_adsquads",
     {
       description: "List ad squads for a campaign, or for the whole ad account when only the account is given (read-only).",
-      inputSchema: { campaign_id: z.string().optional(), ad_account_id: z.string().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
+      shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
     },
-    wrap(async ({ campaign_id, ad_account_id, status, limit }) => {
+    async ({ campaign_id, ad_account_id, status, limit }) => {
       const path = campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`;
       const data = await client.request("GET", path, { query: { limit } });
       return SnapClient.unwrap(data, "adsquad").map(brief).filter((r) => !status || r.status === status);
-    }),
+    },
   );
 
-  server.registerTool(
-    "snap_list_ads",
-    { description: "List ads in an ad squad (read-only).", inputSchema: { adsquad_id: z.string() } },
-    wrap(async ({ adsquad_id }) => {
-      const data = await client.request("GET", `/adsquads/${adsquad_id}/ads`);
-      return SnapClient.unwrap(data, "ad").map(brief);
-    }),
-  );
+  read("snap_list_ads", { description: "List ads in an ad squad (read-only).", shape: { adsquad_id: id() } }, async ({ adsquad_id }) => {
+    const data = await client.request("GET", `/adsquads/${adsquad_id}/ads`);
+    return SnapClient.unwrap(data, "ad").map(brief);
+  });
 
-  server.registerTool(
-    "snap_get_entity",
-    { description: "Get one campaign, ad squad or ad in full, including targeting (read-only).", inputSchema: { entity: entityEnum, id: z.string() } },
-    wrap(({ entity, id }) => client.getEntity(entity, id)),
-  );
+  read("snap_get_entity", { description: "Get one campaign, ad squad or ad in full, including targeting (read-only).", shape: { entity: entityEnum, id: id() } }, ({ entity, id: entityId }) => client.getEntity(entity, entityId));
 
-  server.registerTool(
+  read(
     "snap_get_stats",
     {
       description: "Stats for one campaign, ad squad or ad over a window (read-only). Times must fall on the hour; spend is in micro-currency.",
-      inputSchema: {
+      shape: {
         entity: entityEnum,
-        id: z.string(),
+        id: id(),
         start_time: z.string().describe("ISO date-time on the hour, with offset, e.g. 2026-10-19T00:00:00+03:00"),
         end_time: z.string(),
         granularity: z.enum(["TOTAL", "DAY", "HOUR"]).default("TOTAL"),
         fields: z.array(z.string()).default(["impressions", "spend", "swipes", "conversion_purchases", "conversion_purchases_value", "frequency"]),
       },
     },
-    wrap(async ({ entity, id, start_time, end_time, granularity, fields }) => {
+    async ({ entity, id: entityId, start_time, end_time, granularity, fields }) => {
       const base = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" }[entity];
-      return client.request("GET", `/${base}/${id}/stats`, {
-        query: { granularity, start_time, end_time, fields: fields.join(",") },
-      });
-    }),
-  );
-
-  const confirmField = z.boolean().default(false).describe("false = preview only (nothing sent). true = apply the change.");
-
-  server.registerTool(
-    "snap_set_status",
-    {
-      description: "Pause (PAUSED) or enable (ACTIVE) a campaign, ad squad or ad. Previews unless confirm=true. Never deletes.",
-      inputSchema: { entity: entityEnum, id: z.string(), status: z.enum(["ACTIVE", "PAUSED"]), confirm: confirmField },
+      return client.request("GET", `/${base}/${entityId}/stats`, { query: { granularity, start_time, end_time, fields: fields.join(",") } });
     },
-    wrap(({ entity, id, status, confirm }) =>
-      applyChange({ client, entity, id, confirm, plan: (cur) => planStatus(cur, status) }),
-    ),
   );
 
-  server.registerTool(
-    "snap_set_status_bulk",
-    {
-      description:
-        "Enable (ACTIVE) or pause (PAUSED) up to 20 campaigns, ad squads or ads in one go. Previews unless confirm=true: shows each change, skips ones already in that state, warns when a parent is paused, and for ACTIVE shows the daily budget that would start delivering. Stops at the first failure and reports exactly what changed. Never deletes.",
-      inputSchema: { entity: entityEnum, ids: z.array(z.string()).min(1).max(20), status: z.enum(["ACTIVE", "PAUSED"]), confirm: confirmField },
-    },
-    wrap(async ({ entity, ids, status, confirm }) => {
-      const items = await loadBulkItems(client, entity, ids);
-      const plan = planBulkStatus({ entity, items, status });
-      if (!confirm) return { applied: false, dry_run: true, preview: plan.summary, note: "Nothing was changed. Re-run with confirm=true to apply." };
-      if (!plan.toChange.length) return { applied: false, note: "Nothing to change.", skipped: plan.skipped };
-      const done = await executeBulkStatus({ client, entity, plan, status });
-      return { applied: true, changed: done, skipped: plan.skipped, warnings: plan.warnings };
-    }),
-  );
-
-  server.registerTool(
-    "snap_set_daily_budget",
-    {
-      description:
-        "Set the daily budget (in account currency, e.g. USD) on a campaign or ad squad. Refuses large jumps (default max +100%) and budgets below the minimum. Previews unless confirm=true.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad"]), id: z.string(), daily_budget: z.number().positive(), confirm: confirmField },
-    },
-    wrap(({ entity, id, daily_budget, confirm }) =>
-      applyChange({ client, entity, id, confirm, plan: (cur) => planBudget(cur, daily_budget, env) }),
-    ),
-  );
-
-  server.registerTool(
-    "snap_exclude_segments",
-    {
-      description: "Add audience segments (e.g. past buyers) as EXCLUDE targeting on an ad squad, keeping existing targeting. Previews unless confirm=true.",
-      inputSchema: { adsquad_id: z.string(), segment_ids: z.array(z.string()).min(1), confirm: confirmField },
-    },
-    wrap(({ adsquad_id, segment_ids, confirm }) =>
-      applyChange({ client, entity: "adsquad", id: adsquad_id, confirm, plan: (cur) => planExcludeSegments(cur, segment_ids) }),
-    ),
-  );
-
-  server.registerTool(
-    "snap_copy_campaign",
-    {
-      description:
-        "Copy a campaign with its ad squads (and optionally ads) into a NEW campaign. Everything is created PAUSED and re-timed to start shortly after enabling. Previews unless confirm=true. Review in Ads Manager, then enable with snap_set_status.",
-      inputSchema: {
-        campaign_id: z.string(),
-        new_name: z.string().min(3),
-        include_ads: z.boolean().default(true),
-        budget_scale: z.number().positive().max(2).default(1).describe("Multiply every daily budget, e.g. 0.5 for half"),
-        squad_ids: z.array(z.string()).optional().describe("Copy only these ad squads of the source campaign"),
-        resume_campaign_id: z.string().optional().describe("Reuse an empty campaign left by a failed copy instead of creating a new one"),
-        confirm: confirmField,
-      },
-    },
-    wrap(async ({ campaign_id, new_name, include_ads, budget_scale, squad_ids, resume_campaign_id, confirm }) => {
-      const src = await loadSource(client, campaign_id, { includeAds: include_ads, squadIds: squad_ids });
-      if (src.campaign.name === new_name.trim()) throw new Error("new_name must differ from the source campaign name");
-      const plan = planCopy({ ...src, newName: new_name, includeAds: include_ads, budgetScale: budget_scale });
-      if (!confirm) return { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." };
-      const created = await executeCopy({ client, plan, sourceCampaignId: campaign_id, resumeCampaignId: resume_campaign_id });
-      return { applied: true, created, note: "Everything is PAUSED. Review in Ads Manager, then enable the campaign, ad squads and ads." };
-    }),
-  );
-
-  server.registerTool(
+  read(
     "snap_list_creatives",
     {
       description: "List creatives in an ad account (read-only), so you can see what can be reused.",
-      inputSchema: { ad_account_id: z.string().optional(), limit: z.number().int().min(1).max(500).default(50) },
+      shape: { ad_account_id: id().optional(), limit: z.number().int().min(1).max(500).default(50) },
     },
-    wrap(async ({ ad_account_id, limit }) => {
+    async ({ ad_account_id, limit }) => {
       const data = await client.request("GET", `/adaccounts/${account(ad_account_id)}/creatives`, { query: { limit } });
       return (data.creatives ?? []).map((r) => r.creative ?? r).map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
-    }),
-  );
-
-  server.registerTool(
-    "snap_clone_ad",
-    {
-      description:
-        "Clone an existing ad (same creative) into other ad squads. New ads are created PAUSED. Skips squads that already have an ad with that creative. Previews unless confirm=true.",
-      inputSchema: {
-        ad_id: z.string(),
-        target_adsquad_ids: z.array(z.string()).min(1).max(20),
-        new_name: z.string().optional().describe("Name for the new ads; defaults to the source ad name"),
-        confirm: confirmField,
-      },
     },
-    wrap(async ({ ad_id, target_adsquad_ids, new_name, confirm }) => {
-      const sourceAd = await client.getEntity("ad", ad_id);
-      const targets = await loadTargets(client, target_adsquad_ids);
-      const sourceSquad = await client.getEntity("adsquad", sourceAd.ad_squad_id);
-      const plan = planCloneAd({ sourceAd, targets, newName: new_name, sourceSquad });
-      if (!confirm) return { applied: false, dry_run: true, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true (new ads are PAUSED)." };
-      if (!plan.toCreate.length) return { applied: false, note: "Nothing to create: every target was skipped.", skipped: plan.skipped };
-      const created = await executeCloneAd({ client, plan, sourceAdId: ad_id });
-      return { applied: true, created, skipped: plan.skipped, note: "New ads are PAUSED. Review in Ads Manager, then enable with snap_set_status." };
-    }),
   );
 
-  const brandProfile = (id) => {
-    const p = id ?? env.SNAP_BRAND_PROFILE_ID;
-    if (!p) throw new Error("profile_id missing and SNAP_BRAND_PROFILE_ID not set");
-    return p;
-  };
+  read("snap_get_media", { description: "Get a media asset and its processing status (read-only). Use after claiming an ad code.", shape: { media_id: id() } }, async ({ media_id }) => {
+    const m = await getMedia(client, media_id);
+    return { id: m.id, type: m.type, media_status: m.media_status, duration_in_seconds: m.duration_in_seconds, content_source_type: m.content_source_type, video_metadata: m.video_metadata };
+  });
 
-  server.registerTool(
-    "snap_get_media",
-    { description: "Get a media asset and its processing status (read-only). Use after claiming an ad code.", inputSchema: { media_id: z.string() } },
-    wrap(async ({ media_id }) => {
-      const m = await getMedia(client, media_id);
-      return { id: m.id, type: m.type, media_status: m.media_status, duration_in_seconds: m.duration_in_seconds, content_source_type: m.content_source_type, video_metadata: m.video_metadata };
-    }),
-  );
-
-  server.registerTool(
-    "snap_claim_ad_code",
-    {
-      description:
-        "Claim a creator's ad code (adcode_<uuid>) into the ad account. ONE-WAY: the code is single-use and cannot be unclaimed. Previews (format check only, nothing sent) unless confirm=true.",
-      inputSchema: { ad_code: z.string(), profile_id: z.string().optional().describe("Brand profile id; defaults to SNAP_BRAND_PROFILE_ID"), confirm: confirmField },
-    },
-    wrap(async ({ ad_code, profile_id, confirm }) => {
-      const code = validateAdCode(ad_code);
-      const profileId = brandProfile(profile_id);
-      if (!confirm) return { applied: false, dry_run: true, ad_code_format: "valid", ad_account: account(), brand_profile_id: profileId, warning: "Claiming uses up the creator's single-use code. Nothing was sent. Re-run with confirm=true." };
-      const mediaId = await claimAdCode(client, { adAccountId: account(), adCode: code, profileId });
-      return { applied: true, media_id: mediaId, next: "Poll with snap_get_media until media_status is READY, then snap_create_creative." };
-    }),
-  );
-
-  server.registerTool(
-    "snap_create_creative",
-    {
-      description: "Create a WEB_VIEW creative from a READY media asset (for example a claimed creator post). Previews unless confirm=true.",
-      inputSchema: {
-        media_id: z.string(),
-        name: z.string(),
-        headline: z.string().describe("Max 34 characters"),
-        url: z.string().describe("https:// landing page"),
-        call_to_action: z.string().default("SHOP_NOW"),
-        profile_id: z.string().optional(),
-        confirm: confirmField,
-      },
-    },
-    wrap(async ({ media_id, name, headline, url, call_to_action, profile_id, confirm }) => {
-      const obj = buildCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline, callToAction: call_to_action, url });
-      const media = await getMedia(client, media_id);
-      if (media.media_status !== "READY") throw new Error(`Media is ${media.media_status}, not READY yet`);
-      if (!confirm) return { applied: false, dry_run: true, would_create: { name: obj.name, headline: obj.headline, cta: obj.call_to_action, url: obj.web_view_properties.url, media: media_id }, note: "Nothing created. Re-run with confirm=true." };
-      const created = await client.createEntity("creative", obj);
-      return { applied: true, creative_id: created.id, name: created.name };
-    }),
-  );
-
-  server.registerTool(
-    "snap_create_ad",
-    {
-      description: "Create an ad from an existing creative inside an ad squad. Always created PAUSED. Previews unless confirm=true.",
-      inputSchema: { creative_id: z.string(), adsquad_id: z.string(), name: z.string(), ad_type: z.string().default("REMOTE_WEBPAGE"), confirm: confirmField },
-    },
-    wrap(async ({ creative_id, adsquad_id, name, ad_type, confirm }) => {
-      const squad = await client.getEntity("adsquad", adsquad_id);
-      const obj = buildAd({ adSquadId: adsquad_id, creativeId: creative_id, name, type: ad_type });
-      if (!confirm) return { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, type: obj.type, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." };
-      const created = await client.createEntity("ad", obj);
-      return { applied: true, ad_id: created.id, status: "PAUSED" };
-    }),
-  );
-
-  server.registerTool(
-    "snap_influencer_ad",
-    {
-      description:
-        "Full influencer flow in one step: claim a creator ad code, wait for the media, create a WEB_VIEW creative, and create a PAUSED ad in the given ad squad. Claiming is one-way (single-use code). Previews (nothing sent) unless confirm=true.",
-      inputSchema: {
-        ad_code: z.string(),
-        adsquad_id: z.string(),
-        name: z.string().describe("Used for the creative and the ad, e.g. 'Paid - handle - SKU'"),
-        headline: z.string(),
-        url: z.string(),
-        call_to_action: z.string().default("SHOP_NOW"),
-        profile_id: z.string().optional(),
-        confirm: confirmField,
-      },
-    },
-    wrap(async ({ ad_code, adsquad_id, name, headline, url, call_to_action, profile_id, confirm }) => {
-      const code = validateAdCode(ad_code);
-      const profileId = brandProfile(profile_id);
-      const squad = await client.getEntity("adsquad", adsquad_id);
-      buildCreative({ adAccountId: account(), profileId, mediaId: "preview", name, headline, callToAction: call_to_action, url });
-      if (!confirm) {
-        return { applied: false, dry_run: true, will_do: ["claim ad code (one-way, single-use)", "wait for media READY", "create WEB_VIEW creative", "create PAUSED ad"], in_adsquad: { name: squad.name, status: squad.status }, creative: { name, headline, cta: call_to_action, url }, note: "Nothing was sent. Re-run with confirm=true." };
-      }
-      const done = await runInfluencerFlow({ client, adAccountId: account(), profileId, adCode: code, adSquadId: adsquad_id, name, headline, callToAction: call_to_action, url });
-      return { applied: true, ...done, status: "PAUSED" };
-    }),
-  );
-
-  server.registerTool(
-    "snap_rename",
-    { description: "Rename a campaign, ad squad or ad. Previews unless confirm=true.", inputSchema: { entity: entityEnum, id: z.string(), new_name: z.string().min(3), confirm: confirmField } },
-    wrap(({ entity, id, new_name, confirm }) => applyChange({ client, entity, id, confirm, plan: (cur) => planRename(cur, new_name) })),
-  );
-
-  server.registerTool(
-    "snap_set_bid",
-    {
-      description: "Set the max bid (account currency) on an ad squad that uses a max bid. Refuses increases above +50% (SNAP_MAX_BID_INCREASE_PCT) and auto-bid squads. Previews unless confirm=true.",
-      inputSchema: { adsquad_id: z.string(), bid: z.number().positive(), confirm: confirmField },
-    },
-    wrap(({ adsquad_id, bid, confirm }) => applyChange({ client, entity: "adsquad", id: adsquad_id, confirm, plan: (cur) => planBid(cur, bid, env) })),
-  );
-
-  server.registerTool(
-    "snap_copy_adsquad",
-    {
-      description: "Copy one ad squad (optionally with its ads) into a target campaign. Created PAUSED. Previews unless confirm=true.",
-      inputSchema: {
-        adsquad_id: z.string(),
-        target_campaign_id: z.string(),
-        new_name: z.string().optional(),
-        include_ads: z.boolean().default(false),
-        budget_scale: z.number().positive().max(2).default(1),
-        confirm: confirmField,
-      },
-    },
-    wrap(async ({ adsquad_id, target_campaign_id, new_name, include_ads, budget_scale, confirm }) => {
-      const squad = await client.getEntity("adsquad", adsquad_id, { return_placement_v2: true });
-      const target = await client.getEntity("campaign", target_campaign_id);
-      const ads = include_ads ? await client.listChildren("adsquad", adsquad_id, "ad") : [];
-      const plan = planCopySquad({ squad, ads, newName: new_name, budgetScale: budget_scale });
-      if (!confirm) return { applied: false, dry_run: true, would_create_in_campaign: target.name, would_create: plan.summary, note: "Nothing created. Re-run with confirm=true (PAUSED)." };
-      const created = await executeCopySquad({ client, plan, targetCampaignId: target_campaign_id, sourceSquadId: adsquad_id });
-      return { applied: true, adsquad_id: created.adsquad.id, ads_created: created.ads, status: "PAUSED" };
-    }),
-  );
-
-  server.registerTool(
+  read(
     "snap_report",
     {
       description: "Performance table for a campaign or ad squad broken down by ad squad or ad: spend, purchases, ROAS, CPA, swipe rate and frequency (read-only). Times must fall on the hour, with offset.",
-      inputSchema: {
-        entity: z.enum(["campaign", "adsquad"]),
-        id: z.string(),
-        breakdown: z.enum(["adsquad", "ad"]),
-        start_time: z.string().describe("e.g. 2026-10-19T00:00:00+03:00"),
-        end_time: z.string(),
-      },
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]), start_time: z.string().describe("e.g. 2026-10-19T00:00:00+03:00"), end_time: z.string() },
     },
-    wrap((args) => breakdownReport(client, args)),
+    (args) => breakdownReport(client, args),
   );
 
-  server.registerTool(
-    "snap_create_campaign",
-    {
-      description: "Create a new, empty campaign (always PAUSED, starting shortly after you enable it). Add ad squads with snap_copy_adsquad. Previews unless confirm=true.",
-      inputSchema: { name: z.string().min(3), objective: z.enum(["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"]).default("SALES"), confirm: confirmField },
-    },
-    wrap(async ({ name, objective, confirm }) => {
-      const campaign = buildCampaign({ adAccountId: account(), name, objective });
-      if (!confirm) return { applied: false, dry_run: true, would_create: { name: campaign.name, objective, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." };
-      const created = await createCampaign({ client, campaign });
-      return { applied: true, campaign_id: created.id, status: "PAUSED" };
-    }),
-  );
-
-  server.registerTool(
-    "snap_upload_media",
-    {
-      description: "Upload a local video (.mp4/.mov) or image (.jpg/.png), up to 1 GB (files over 32 MB go in chunks), to the ad account. It is not attached to any ad. Then poll snap_get_media until READY and use snap_create_creative. Previews (file check only) unless confirm=true.",
-      inputSchema: { file_path: z.string().describe("Absolute path on this machine"), name: z.string().optional(), confirm: confirmField },
-    },
-    wrap(async ({ file_path, name, confirm }) => {
-      const info = inspectMediaFile(file_path);
-      if (!confirm) return { applied: false, dry_run: true, file: info.fileName, type: info.type, megabytes: Math.round((info.size / 1048576) * 10) / 10, note: "Nothing uploaded. Re-run with confirm=true." };
-      return { applied: true, ...(await uploadMedia({ client, adAccountId: account(), filePath: file_path, name })) };
-    }),
-  );
-
-  server.registerTool(
-    "snap_create_adsquad",
-    {
-      description:
-        "Create a new ad squad from a few choices (purchase-optimized web squad with a max bid). Always PAUSED. Previews unless confirm=true. Pixel defaults to SNAP_PIXEL_ID.",
-      inputSchema: {
-        campaign_id: z.string(),
-        name: z.string().min(3),
-        daily_budget: z.number().min(5),
-        bid: z.number().positive().optional().describe("Max bid in account currency (required unless bid_strategy is AUTO_BID)"),
-        bid_strategy: z.enum(["LOWEST_COST_WITH_MAX_BID", "AUTO_BID"]).default("LOWEST_COST_WITH_MAX_BID"),
-        pixel_id: z.string().optional(),
-        interests: z.array(z.string()).optional().describe("Interest ids like SLC_11 (see snap_targeting_options)"),
-        os_type: z.enum(["iOS", "ANDROID"]).optional(),
-        exclude_segment_ids: z.array(z.string()).optional().describe("e.g. past-buyer audiences"),
-        include_segment_ids: z.array(z.string()).optional(),
-        countries: z.array(z.string()).default(["sa"]),
-        min_age: z.number().int().min(13).max(50).optional(),
-        max_age: z.number().int().min(13).max(50).optional(),
-        gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
-        conversion_window: z.enum(["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"]).default("SWIPE_7DAY"),
-        confirm: confirmField,
-      },
-    },
-    wrap(async (a) => {
-      const campaign = await client.getEntity("campaign", a.campaign_id);
-      const adsquad = buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? env.SNAP_PIXEL_ID, countries: a.countries, minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window });
-      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries, excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, status: "PAUSED" };
-      if (!a.confirm) return { applied: false, dry_run: true, would_create: summary, note: "Nothing created. Re-run with confirm=true (PAUSED)." };
-      const created = await createAdSquad({ client, adsquad });
-      return { applied: true, adsquad_id: created.id, status: "PAUSED" };
-    }),
-  );
-
-  server.registerTool(
-    "snap_set_targeting",
-    {
-      description: "Change an ad squad's targeting: countries, age, gender, interests, device OS, include segments, or stop excluding segments. Everything not mentioned is kept. Previews unless confirm=true.",
-      inputSchema: {
-        adsquad_id: z.string(),
-        countries: z.array(z.string()).optional(),
-        min_age: z.number().int().min(13).max(50).optional(),
-        max_age: z.number().int().min(13).max(50).optional(),
-        gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
-        interests: z.array(z.string()).optional().describe("Replace interests with these ids (e.g. SLC_11); use snap_targeting_options to find ids"),
-        clear_interests: z.boolean().optional(),
-        os_type: z.enum(["iOS", "ANDROID"]).optional(),
-        clear_devices: z.boolean().optional(),
-        include_segments: z.array(z.string()).optional(),
-        remove_exclusions: z.array(z.string()).optional().describe("Segment ids to stop excluding"),
-        confirm: confirmField,
-      },
-    },
-    wrap(({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions, confirm }) =>
-      applyChange({ client, entity: "adsquad", id: adsquad_id, confirm, plan: (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions }) }),
-    ),
-  );
-
-  server.registerTool(
-    "snap_set_schedule",
-    {
-      description: "Set start_time and/or end_time (ISO with offset) on a campaign or ad squad. end_time must be in the future and after the start. Previews unless confirm=true.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad"]), id: z.string(), start_time: z.string().optional(), end_time: z.string().optional(), confirm: confirmField },
-    },
-    wrap(({ entity, id, start_time, end_time, confirm }) =>
-      applyChange({ client, entity, id, confirm, plan: (cur) => planSchedule(cur, { startTime: start_time, endTime: end_time }) }),
-    ),
-  );
-
-  server.registerTool(
+  read(
     "snap_api_get",
     {
       description: "Read-only GET against the Snap Marketing API for anything without a dedicated tool (allow-listed paths only, e.g. /adaccounts/{id}/..., /pixels/{id}/..., /organizations/{id}/...). Query values go in `query`. Never writes.",
-      inputSchema: { path: z.string().describe("Starts with /, no query string"), query: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}), max_chars: z.number().int().min(1000).max(100000).default(20000) },
+      shape: { path: z.string().describe("Starts with /, no query string"), query: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}), max_chars: z.number().int().min(1000).max(100000).default(20000) },
     },
-    wrap(({ path, query, max_chars }) => rawGet(client, { path, query, maxChars: max_chars })),
+    ({ path, query, max_chars }) => rawGet(client, { path, query, maxChars: max_chars }),
   );
 
-  server.registerTool(
+  read(
     "snap_list_segments",
     {
       description: "List audience segments (customer lists, pixel, engagement, lookalike) with size and status, largest first (read-only).",
-      inputSchema: { source_type: z.enum(["FIRST_PARTY", "PIXEL", "ENGAGEMENT", "LOOKALIKE"]).optional(), min_size: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(300).default(60), ad_account_id: z.string().optional() },
+      shape: { source_type: z.enum(["FIRST_PARTY", "PIXEL", "ENGAGEMENT", "LOOKALIKE"]).optional(), min_size: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(300).default(60), ad_account_id: id().optional() },
     },
-    wrap(async ({ source_type, min_size, limit, ad_account_id }) => (await listSegments(client, account(ad_account_id), { sourceType: source_type, minSize: min_size })).slice(0, limit)),
+    async ({ source_type, min_size, limit, ad_account_id }) => (await listSegments(client, account(ad_account_id), { sourceType: source_type, minSize: min_size })).slice(0, limit),
   );
 
-  server.registerTool("snap_list_pixels", { description: "List the Snap pixels of the ad account (read-only).", inputSchema: { ad_account_id: z.string().optional() } }, wrap(({ ad_account_id }) => listPixels(client, account(ad_account_id))));
+  read("snap_list_pixels", { description: "List the Snap pixels of the ad account (read-only).", shape: { ad_account_id: id().optional() } }, ({ ad_account_id }) => listPixels(client, account(ad_account_id)));
 
-  server.registerTool(
+  read(
     "snap_list_catalogs",
-    { description: "List product catalogs of the organization (read-only). Organization id defaults to the ad account's organization.", inputSchema: { organization_id: z.string().optional() } },
-    wrap(async ({ organization_id }) => {
+    { description: "List product catalogs of the organization (read-only). Organization id defaults to the ad account's organization.", shape: { organization_id: id().optional() } },
+    async ({ organization_id }) => {
       const org = organization_id ?? (await client.request("GET", `/adaccounts/${account()}`)).adaccounts[0].adaccount.organization_id;
       return listCatalogs(client, org);
-    }),
+    },
   );
 
-  server.registerTool("snap_list_product_sets", { description: "List product sets of a catalog (read-only).", inputSchema: { catalog_id: z.string() } }, wrap(({ catalog_id }) => listProductSets(client, catalog_id)));
+  read("snap_list_product_sets", { description: "List product sets of a catalog (read-only).", shape: { catalog_id: id() } }, ({ catalog_id }) => listProductSets(client, catalog_id));
 
-  server.registerTool(
+  read(
     "snap_targeting_options",
     {
       description: "Look up targeting ids (read-only): interests (lifestyle, shopper, visitation), regions, languages, age groups. Use the returned ids with snap_set_targeting.",
-      inputSchema: { kind: z.enum(Object.keys(TARGETING_KINDS)), country: z.string().default("sa"), search: z.string().optional() },
+      shape: { kind: z.enum(Object.keys(TARGETING_KINDS)), country: z.string().default("sa"), search: z.string().optional() },
     },
-    wrap(({ kind, country, search }) => targetingOptions(client, { kind, country, search })),
+    ({ kind, country, search }) => targetingOptions(client, { kind, country, search }),
   );
 
-  server.registerTool(
-    "snap_create_lookalike",
-    {
-      description: "Create a lookalike audience from a first-party (customer list) seed segment. Creates an audience only, nothing is delivered. Previews unless confirm=true.",
-      inputSchema: {
-        seed_segment_id: z.string(),
-        name: z.string().min(3),
-        countries: z.array(z.string()).default(["SA"]),
-        type: z.enum(["BALANCE", "SIMILARITY", "REACH"]).default("BALANCE"),
-        retention_days: z.number().int().min(1).max(180).default(180),
-        confirm: confirmField,
-      },
-    },
-    wrap(async ({ seed_segment_id, name, countries, type, retention_days, confirm }) => {
-      const seed = await client.getEntity("segment", seed_segment_id);
-      const obj = buildLookalike({ adAccountId: account(), seedSegmentId: seed_segment_id, name, countries, type, retentionDays: retention_days });
-      if (!confirm) return { applied: false, dry_run: true, would_create: { name: obj.name, type, countries: obj.creation_spec.countries, seed: seed.name, seed_size: seed.approximate_number_users, seed_source: seed.source_type }, note: "Nothing created. Re-run with confirm=true." };
-      const created = await client.createEntity("segment", obj);
-      return { applied: true, segment_id: created.id, name: created.name };
-    }),
-  );
-
-  server.registerTool(
+  read(
     "snap_report_daily",
     {
       description: "Day-by-day performance (spend, purchases, ROAS, CPA, swipe rate) for a campaign, ad squad or ad, up to 31 days (read-only). Day boundaries must be local midnight with offset.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad", "ad"]), id: z.string(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+03:00"), end_time: z.string() },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+03:00"), end_time: z.string() },
     },
-    wrap((args) => dailyReport(client, args)),
+    (args) => dailyReport(client, args),
   );
 
-  server.registerTool(
+  read(
     "snap_report_audience",
     {
       description: "Performance split by country, gender, age, region, dma or make (read-only), for a campaign, ad squad or ad.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad", "ad"]), id: z.string(), dimension: z.enum(DIMENSIONS), start_time: z.string(), end_time: z.string() },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), dimension: z.enum(DIMENSIONS), start_time: z.string(), end_time: z.string() },
     },
-    wrap((args) => dimensionReport(client, args)),
+    (args) => dimensionReport(client, args),
   );
 
-  server.registerTool(
+  read(
     "snap_health_check",
     {
       description: "Audit every ACTIVE campaign's ACTIVE ad squads (read-only): no buyer exclusion, high frequency, low swipe rate, low ROAS, spend with no purchases, squads under a paused campaign. Returns the ad squad ids to act on.",
-      inputSchema: {
+      shape: {
         start_time: z.string().describe("Window start, e.g. 2026-10-19T00:00:00+03:00"),
         end_time: z.string(),
         max_frequency: z.number().default(5),
@@ -575,213 +345,612 @@ export function registerTools(server, client, env = process.env) {
         min_roas: z.number().default(3),
       },
     },
-    wrap(({ start_time, end_time, max_frequency, min_swipe_rate_pct, min_spend, min_roas }) =>
+    ({ start_time, end_time, max_frequency, min_swipe_rate_pct, min_spend, min_roas }) =>
       healthCheck(client, { adAccountId: account(), start_time, end_time, thresholds: { maxFrequency: max_frequency, minSwipeRatePct: min_swipe_rate_pct, minSpend: min_spend, minRoas: min_roas } }),
-    ),
   );
 
-  server.registerTool(
+  read(
     "snap_review_issues",
-    {
-      description: "Ads that are rejected or pending review, with Snap's reasons (read-only). By default only ads whose ad squad is ACTIVE.",
-      inputSchema: { only_active: z.boolean().default(true) },
-    },
-    wrap(({ only_active }) => reviewIssues(client, { adAccountId: account(), onlyActive: only_active })),
+    { description: "Ads that are rejected or pending review, with Snap's reasons (read-only). By default only ads whose ad squad is ACTIVE.", shape: { only_active: z.boolean().default(true) } },
+    ({ only_active }) => reviewIssues(client, { adAccountId: account(), onlyActive: only_active }),
   );
 
-  server.registerTool(
+  read(
     "snap_pixel_health",
-    { description: "Pixel signal readiness and event-quality recommendations, highest priority first (read-only). Pixel defaults to SNAP_PIXEL_ID.", inputSchema: { pixel_id: z.string().optional() } },
-    wrap(({ pixel_id }) => pixelHealth(client, pixel_id ?? env.SNAP_PIXEL_ID)),
+    { description: "Pixel signal readiness and event-quality recommendations, highest priority first (read-only). Pixel defaults to SNAP_PIXEL_ID.", shape: { pixel_id: id().optional() } },
+    ({ pixel_id }) => {
+      const pixel = pixel_id ?? cfg.pixel;
+      if (!pixel) throw new Error("pixel_id missing and SNAP_PIXEL_ID not set");
+      return pixelHealth(client, pixel);
+    },
   );
 
-  server.registerTool(
+  read(
     "snap_report_compare",
     {
       description: "Compare two time windows for a campaign, ad squad or ad, optionally per child (ad squads or ads): spend, purchases, ROAS, CPA, frequency, swipe rate and the changes (read-only).",
-      inputSchema: {
-        entity: z.enum(["campaign", "adsquad", "ad"]),
-        id: z.string(),
-        breakdown: z.enum(["adsquad", "ad"]).optional(),
-        current_start: z.string(), current_end: z.string(),
-        previous_start: z.string(), previous_end: z.string(),
-      },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]).optional(), current_start: z.string(), current_end: z.string(), previous_start: z.string(), previous_end: z.string() },
     },
-    wrap(({ entity, id, breakdown, current_start, current_end, previous_start, previous_end }) =>
-      compareReport(client, { entity, id, breakdown, current: { start_time: current_start, end_time: current_end }, previous: { start_time: previous_start, end_time: previous_end } }),
-    ),
+    ({ entity, id: entityId, breakdown, current_start, current_end, previous_start, previous_end }) =>
+      compareReport(client, { entity, id: entityId, breakdown, current: { start_time: current_start, end_time: current_end }, previous: { start_time: previous_start, end_time: previous_end } }),
   );
 
-  const idsField = z.array(z.string()).min(1).max(20);
+  const asyncEntity = z.enum(["adaccount", "campaign", "adsquad", "ad"]);
+  read(
+    "snap_report_async_start",
+    {
+      description: "Start a large CSV report (no size limit, unlike the synchronous reports). Returns a report_run_id; check it with snap_report_async_status, then snap_report_async_download. Read-only.",
+      shape: { entity: asyncEntity, id: id(), start_time: z.string(), end_time: z.string(), granularity: z.enum(["TOTAL", "DAY", "HOUR"]).default("DAY"), breakdown: z.enum(["campaign", "adsquad", "ad"]).optional() },
+    },
+    (a) => startAsyncReport(client, a),
+  );
+  read("snap_report_async_status", { description: "Status of an async report (STARTED, RUNNING, COMPLETED) (read-only).", shape: { entity: asyncEntity, id: id(), report_run_id: z.string() } }, (a) => asyncReportStatus(client, a));
+  read(
+    "snap_report_async_download",
+    {
+      description: "Download a COMPLETED async report as a CSV into this project's exports/ folder and return its path and row count. Reads from Snap only; writes one local file.",
+      shape: { entity: asyncEntity, id: id(), report_run_id: z.string(), file_name: z.string().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    ({ entity, id: entityId, report_run_id, file_name }) => downloadAsyncReport(client, { entity, id: entityId, report_run_id, fileName: file_name }),
+  );
 
-  server.registerTool(
+  read(
+    "snap_creative_fatigue",
+    {
+      description: "Which ads are tired? Compares each ad of a campaign or ad squad this window vs the one before: FATIGUED (ROAS down 30%+ with higher frequency or lower swipe rate), WATCH, HEALTHY, STOPPED, NEW (read-only). end_time must be hour-aligned with an offset; days defaults to 7.",
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), end_time: z.string().describe("e.g. 2026-10-27T00:00:00+03:00"), days: z.number().int().min(1).max(15).default(7), min_spend: z.number().default(50) },
+    },
+    ({ entity, id: entityId, end_time, days, min_spend }) => fatigueReport(client, { entity, id: entityId, end_time, days, minSpend: min_spend }),
+  );
+
+  read("snap_change_log", { description: "Show the most recent changes and audit events this server recorded.", shape: { limit: z.number().int().min(1).max(200).default(20) }, annotations: { readOnlyHint: true, openWorldHint: false } }, ({ limit }) => readLog(limit, logFile));
+
+  // ---------------------------------------------------------------- write tools
+
+  write(
+    "snap_set_status",
+    {
+      description: "Pause (PAUSED) or enable (ACTIVE) a campaign, ad squad or ad. Enabling shows the daily budget that would really start delivering (including the ACTIVE ad squads under a campaign) and is refused above the configured limits. Previews unless confirm=true. Never deletes.",
+      shape: { entity: entityEnum, id: id(), status: z.enum(["ACTIVE", "PAUSED"]) },
+      destructive: true,
+    },
+    ({ entity, id: entityId, status }) => change(entity, entityId, (cur) => planStatus(cur, status), { activation: true }),
+  );
+
+  write(
+    "snap_set_status_bulk",
+    {
+      description:
+        "Enable (ACTIVE) or pause (PAUSED) up to 20 campaigns, ad squads or ads in one go. Previews unless confirm=true: shows each change, skips ones already in that state, warns when a parent is paused, and for ACTIVE shows the daily budget that would really start delivering (refused above the configured limits). Stops at the first failure and reports exactly what changed. Never deletes.",
+      shape: { entity: entityEnum, ids: z.array(id()).min(1).max(20), status: z.enum(["ACTIVE", "PAUSED"]) },
+      destructive: true,
+    },
+    async ({ entity, ids, status }) => {
+      const items = await loadBulkItems(client, entity, ids);
+      const plan = planBulkStatus({ entity, items, status });
+      const changing = items.filter(({ obj }) => obj.status !== status).map(({ obj }) => obj);
+      const impact = status === "ACTIVE" && changing.length ? await activationImpact(client, entity, changing, policy) : undefined;
+      // The planner only sees the items themselves; the real figure comes from what their children would start.
+      const summary = { ...plan.summary, ...(impact ? { daily_budget_that_would_start_delivering: impact.daily_budget_that_starts_delivering, activation: impact } : {}) };
+      return {
+        targets: items.map(({ obj }) => ({ entity, obj })),
+        state: { items: items.map(({ obj, parent }) => ({ obj, parent_status: parent?.status ?? null })), impact: impact ?? null },
+        blocked: plan.toChange.length ? undefined : "Nothing to change: every item is already in that state.",
+        preview: { applied: false, dry_run: true, preview: summary, note: "Nothing was changed. Re-run with confirm=true to apply." },
+        execute: async () => ({ applied: true, changed: await executeBulkStatus({ client, entity, plan, status, logFile }), skipped: plan.skipped, warnings: plan.warnings }),
+      };
+    },
+  );
+
+  write(
+    "snap_set_daily_budget",
+    {
+      description:
+        "Set the daily budget (in account currency, e.g. USD) on a campaign or ad squad. Refused above the absolute limit (SNAP_MAX_DAILY_BUDGET), above the allowed increase per step and per 24 hours (default +100%), and below the minimum. Previews unless confirm=true.",
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), daily_budget: z.number().positive() },
+      destructive: true,
+    },
+    ({ entity, id: entityId, daily_budget }) => change(entity, entityId, (cur) => planBudget(cur, daily_budget, policy, { history })),
+  );
+
+  write(
+    "snap_exclude_segments",
+    {
+      description: "Add audience segments (e.g. past buyers) as EXCLUDE targeting on an ad squad, keeping existing targeting. Previews unless confirm=true.",
+      shape: { adsquad_id: id(), segment_ids: z.array(id()).min(1) },
+      destructive: true,
+    },
+    ({ adsquad_id, segment_ids }) => change("adsquad", adsquad_id, (cur) => planExcludeSegments(cur, segment_ids)),
+  );
+
+  write(
+    "snap_copy_campaign",
+    {
+      description:
+        "Copy a campaign with its ad squads (and optionally ads) into a NEW campaign. Everything is created PAUSED and re-timed to start shortly after enabling. Daily and lifetime budgets are scaled by budget_scale and must stay within the configured limits. Previews unless confirm=true. Review in Ads Manager, then enable with snap_set_status.",
+      shape: {
+        campaign_id: id(),
+        new_name: z.string().min(3),
+        include_ads: z.boolean().default(true),
+        budget_scale: z.number().positive().max(2).default(1).describe("Multiply every daily and lifetime budget, e.g. 0.5 for half"),
+        squad_ids: z.array(id()).optional().describe("Copy only these ad squads of the source campaign"),
+        resume_campaign_id: id().optional().describe("Reuse an empty campaign left by a failed copy instead of creating a new one"),
+      },
+      repeatGuard: true,
+    },
+    async ({ campaign_id, new_name, include_ads, budget_scale, squad_ids, resume_campaign_id }) => {
+      const src = await loadSource(client, campaign_id, { includeAds: include_ads, squadIds: squad_ids });
+      if (src.campaign.name === new_name.trim()) throw new Error("new_name must differ from the source campaign name");
+      const plan = planCopy({ ...src, newName: new_name, includeAds: include_ads, budgetScale: budget_scale, env: policy });
+      const targets = [{ entity: "campaign", obj: src.campaign }];
+      let resume = null;
+      if (resume_campaign_id) {
+        resume = await client.getEntity("campaign", resume_campaign_id);
+        if (resume.status !== "PAUSED") throw new Error("resume_campaign_id must be a PAUSED campaign left by a failed copy");
+        targets.push({ entity: "campaign", obj: resume });
+      }
+      return {
+        targets,
+        state: { campaign: src.campaign, squads: src.squads, ads: src.adsBySquad, resume },
+        preview: { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." },
+        execute: async () => ({ applied: true, created: await executeCopy({ client, plan, sourceCampaignId: campaign_id, resumeCampaignId: resume_campaign_id, logFile }), note: "Everything is PAUSED. Review in Ads Manager, then enable the campaign, ad squads and ads." }),
+      };
+    },
+  );
+
+  write(
+    "snap_clone_ad",
+    {
+      description: "Clone an existing ad (same creative) into other ad squads. New ads are created PAUSED. Skips squads that already have an ad with that creative. Previews unless confirm=true.",
+      shape: { ad_id: id(), target_adsquad_ids: z.array(id()).min(1).max(20), new_name: z.string().optional().describe("Name for the new ads; defaults to the source ad name") },
+    },
+    async ({ ad_id, target_adsquad_ids, new_name }) => {
+      const sourceAd = await client.getEntity("ad", ad_id);
+      const targetSquads = await loadTargets(client, target_adsquad_ids);
+      const sourceSquad = await client.getEntity("adsquad", sourceAd.ad_squad_id);
+      const plan = planCloneAd({ sourceAd, targets: targetSquads, newName: new_name, sourceSquad });
+      return {
+        targets: [{ entity: "ad", obj: sourceAd }, ...targetSquads.map((t) => ({ entity: "adsquad", obj: t.squad }))],
+        state: { sourceAd, targets: targetSquads },
+        blocked: plan.toCreate.length ? undefined : `Nothing to create: every target was skipped. ${JSON.stringify(plan.skipped)}`,
+        preview: { applied: false, dry_run: true, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true (new ads are PAUSED)." },
+        execute: async () => ({ applied: true, created: await executeCloneAd({ client, plan, sourceAdId: ad_id, logFile }), skipped: plan.skipped, note: "New ads are PAUSED. Review in Ads Manager, then enable with snap_set_status." }),
+      };
+    },
+  );
+
+  write(
+    "snap_claim_ad_code",
+    {
+      description: "Claim a creator's ad code (adcode_<uuid>) into the ad account. ONE-WAY: the code is single-use and cannot be unclaimed. Previews (format check only, nothing sent) unless confirm=true.",
+      shape: { ad_code: z.string(), profile_id: id().optional().describe("Brand profile id; defaults to SNAP_BRAND_PROFILE_ID") },
+      repeatGuard: true,
+    },
+    async ({ ad_code, profile_id }) => {
+      const code = validateAdCode(ad_code);
+      const profileId = brandProfile(profile_id);
+      const adAccountId = account();
+      return {
+        preview: { applied: false, dry_run: true, ad_code_format: "valid", brand_profile_id: profileId, warning: "Claiming uses up the creator's single-use code. Nothing was sent. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, media_id: await claimAdCode(client, { adAccountId, adCode: code, profileId }), next: "Poll with snap_get_media until media_status is READY, then snap_create_creative." }),
+      };
+    },
+  );
+
+  write(
+    "snap_create_creative",
+    {
+      description: "Create a WEB_VIEW creative from a READY media asset (for example a claimed creator post). Previews unless confirm=true.",
+      shape: { media_id: id(), name: z.string(), headline: z.string().describe("Max 34 characters"), url: z.string().describe("https:// landing page"), call_to_action: z.string().default("SHOP_NOW"), profile_id: id().optional() },
+      repeatGuard: true,
+    },
+    async ({ media_id, name, headline, url, call_to_action, profile_id }) => {
+      const obj = buildCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline, callToAction: call_to_action, url });
+      const media = await getMedia(client, media_id);
+      if (media.media_status !== "READY") throw new Error(`Media is ${media.media_status}, not READY yet`);
+      return {
+        targetIds: [media_id],
+        state: { media_status: media.media_status },
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, headline: obj.headline, cta: obj.call_to_action, url: obj.web_view_properties.url, media: media_id }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const created = await client.createEntity("creative", obj);
+          return { applied: true, creative_id: created.id, name: created.name };
+        },
+      };
+    },
+  );
+
+  write(
+    "snap_create_ad",
+    {
+      description: "Create an ad from an existing creative inside an ad squad. Always created PAUSED. Previews unless confirm=true.",
+      shape: { creative_id: id(), adsquad_id: id(), name: z.string(), ad_type: z.string().default("REMOTE_WEBPAGE") },
+      repeatGuard: true,
+    },
+    async ({ creative_id, adsquad_id, name, ad_type }) => {
+      const squad = await client.getEntity("adsquad", adsquad_id);
+      const obj = buildAd({ adSquadId: adsquad_id, creativeId: creative_id, name, type: ad_type });
+      return {
+        targets: [{ entity: "adsquad", obj: squad }],
+        state: { squad },
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, type: obj.type, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, ad_id: (await client.createEntity("ad", obj)).id, status: "PAUSED" }),
+      };
+    },
+  );
+
+  write(
+    "snap_influencer_ad",
+    {
+      description: "Full influencer flow in one step: claim a creator ad code, wait for the media, create a WEB_VIEW creative, and create a PAUSED ad in the given ad squad. Claiming is one-way (single-use code). Previews (nothing sent) unless confirm=true.",
+      shape: { ad_code: z.string(), adsquad_id: id(), name: z.string().describe("Used for the creative and the ad, e.g. 'Paid - handle - SKU'"), headline: z.string(), url: z.string(), call_to_action: z.string().default("SHOP_NOW"), profile_id: id().optional() },
+      repeatGuard: true,
+    },
+    async ({ ad_code, adsquad_id, name, headline, url, call_to_action, profile_id }) => {
+      const code = validateAdCode(ad_code);
+      const profileId = brandProfile(profile_id);
+      const adAccountId = account();
+      const squad = await client.getEntity("adsquad", adsquad_id);
+      buildCreative({ adAccountId, profileId, mediaId: "preview", name, headline, callToAction: call_to_action, url });
+      return {
+        targets: [{ entity: "adsquad", obj: squad }],
+        state: { squad },
+        preview: { applied: false, dry_run: true, will_do: ["claim ad code (one-way, single-use)", "wait for media READY", "create WEB_VIEW creative", "create PAUSED ad"], in_adsquad: { name: squad.name, status: squad.status }, creative: { name, headline, cta: call_to_action, url }, note: "Nothing was sent. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, ...(await runInfluencerFlow({ client, adAccountId, profileId, adCode: code, adSquadId: adsquad_id, name, headline, callToAction: call_to_action, url, logFile })), status: "PAUSED" }),
+      };
+    },
+  );
+
+  write(
+    "snap_rename",
+    { description: "Rename a campaign, ad squad or ad. Previews unless confirm=true.", shape: { entity: entityEnum, id: id(), new_name: z.string().min(3) }, destructive: true },
+    ({ entity, id: entityId, new_name }) => change(entity, entityId, (cur) => planRename(cur, new_name)),
+  );
+
+  write(
+    "snap_set_bid",
+    {
+      description: "Set the max bid (account currency) on an ad squad that uses a max bid. Refused above the absolute limit (SNAP_MAX_BID), above +50% per step and per 24 hours (SNAP_MAX_BID_INCREASE_PCT), and on auto-bid squads. Previews unless confirm=true.",
+      shape: { adsquad_id: id(), bid: z.number().positive() },
+      destructive: true,
+    },
+    ({ adsquad_id, bid }) => change("adsquad", adsquad_id, (cur) => planBid(cur, bid, policy, { history })),
+  );
+
+  write(
+    "snap_copy_adsquad",
+    {
+      description: "Copy one ad squad (optionally with its ads) into a target campaign. Created PAUSED. Budgets are scaled by budget_scale and must stay within the configured limits. Previews unless confirm=true.",
+      shape: { adsquad_id: id(), target_campaign_id: id(), new_name: z.string().optional(), include_ads: z.boolean().default(false), budget_scale: z.number().positive().max(2).default(1) },
+      repeatGuard: true,
+    },
+    async ({ adsquad_id, target_campaign_id, new_name, include_ads, budget_scale }) => {
+      const squad = await client.getEntity("adsquad", adsquad_id, { return_placement_v2: true });
+      const target = await client.getEntity("campaign", target_campaign_id);
+      const ads = include_ads ? await client.listChildren("adsquad", adsquad_id, "ad") : [];
+      const plan = planCopySquad({ squad, ads, newName: new_name, budgetScale: budget_scale, env: policy });
+      return {
+        targets: [{ entity: "adsquad", obj: squad }, { entity: "campaign", obj: target }],
+        state: { squad, target, ads },
+        preview: { applied: false, dry_run: true, would_create_in_campaign: target.name, would_create: plan.summary, note: "Nothing created. Re-run with confirm=true (PAUSED)." },
+        execute: async () => {
+          const created = await executeCopySquad({ client, plan, targetCampaignId: target_campaign_id, sourceSquadId: adsquad_id, logFile });
+          return { applied: true, adsquad_id: created.adsquad.id, ads_created: created.ads, status: "PAUSED" };
+        },
+      };
+    },
+  );
+
+  write(
+    "snap_create_campaign",
+    {
+      description: "Create a new, empty campaign (always PAUSED, starting shortly after you enable it). Add ad squads with snap_copy_adsquad. Previews unless confirm=true.",
+      shape: { name: z.string().min(3), objective: z.enum(["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"]).default("SALES") },
+      repeatGuard: true,
+    },
+    async ({ name, objective }) => {
+      const adAccountId = account();
+      buildCampaign({ adAccountId, name, objective });
+      return {
+        preview: { applied: false, dry_run: true, would_create: { name: name.trim(), objective, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, campaign_id: (await createCampaign({ client, campaign: buildCampaign({ adAccountId, name, objective }), logFile })).id, status: "PAUSED" }),
+      };
+    },
+  );
+
+  write(
+    "snap_upload_media",
+    {
+      description: "Upload a local video (.mp4/.mov) or image (.jpg/.png), up to 1 GB (files over 32 MB go in chunks), to the ad account. It is not attached to any ad. Then poll snap_get_media until READY and use snap_create_creative. Previews (file check only) unless confirm=true.",
+      shape: { file_path: z.string().describe("Absolute path on this machine"), name: z.string().optional() },
+      repeatGuard: true,
+    },
+    async ({ file_path, name }) => {
+      const info = inspectMediaFile(file_path);
+      const adAccountId = account();
+      return {
+        state: fileState(file_path),
+        preview: { applied: false, dry_run: true, file: info.fileName, type: info.type, megabytes: Math.round((info.size / 1048576) * 10) / 10, note: "Nothing uploaded. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, ...(await uploadMedia({ client, adAccountId, filePath: file_path, name, logFile })) }),
+      };
+    },
+  );
+
+  write(
+    "snap_create_adsquad",
+    {
+      description: "Create a new ad squad from a few choices (purchase-optimized web squad with a max bid). Always PAUSED. daily_budget and bid must be within the configured limits (SNAP_MIN_DAILY_BUDGET, SNAP_MAX_DAILY_BUDGET, SNAP_MAX_BID). Previews unless confirm=true. Pixel defaults to SNAP_PIXEL_ID.",
+      shape: {
+        campaign_id: id(),
+        name: z.string().min(3),
+        daily_budget: z.number().positive().describe("In account currency, e.g. 25"),
+        bid: z.number().positive().optional().describe("Max bid in account currency (required unless bid_strategy is AUTO_BID)"),
+        bid_strategy: z.enum(["LOWEST_COST_WITH_MAX_BID", "AUTO_BID"]).default("LOWEST_COST_WITH_MAX_BID"),
+        pixel_id: id().optional(),
+        interests: z.array(z.string()).optional().describe("Interest ids like SLC_11 (see snap_targeting_options)"),
+        os_type: z.enum(["iOS", "ANDROID"]).optional(),
+        exclude_segment_ids: z.array(id()).optional().describe("e.g. past-buyer audiences"),
+        include_segment_ids: z.array(id()).optional(),
+        countries: z.array(z.string()).default(["sa"]),
+        min_age: z.number().int().min(13).max(50).optional(),
+        max_age: z.number().int().min(13).max(50).optional(),
+        gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+        conversion_window: z.enum(["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"]).default("SWIPE_7DAY"),
+      },
+      repeatGuard: true,
+    },
+    async (a) => {
+      const campaign = await client.getEntity("campaign", a.campaign_id);
+      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries, minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, env: policy });
+      const adsquad = build();
+      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries, excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, status: "PAUSED" };
+      return {
+        targets: [{ entity: "campaign", obj: campaign }],
+        state: { campaign },
+        preview: { applied: false, dry_run: true, would_create: summary, note: "Nothing created. Re-run with confirm=true (PAUSED)." },
+        execute: async () => ({ applied: true, adsquad_id: (await createAdSquad({ client, adsquad: build(), logFile })).id, status: "PAUSED" }),
+      };
+    },
+  );
+
+  write(
+    "snap_set_targeting",
+    {
+      description: "Change an ad squad's targeting: countries, age, gender, interests, device OS, include segments, or stop excluding segments. Everything not mentioned is kept. Previews unless confirm=true.",
+      shape: {
+        adsquad_id: id(),
+        countries: z.array(z.string()).optional(),
+        min_age: z.number().int().min(13).max(50).optional(),
+        max_age: z.number().int().min(13).max(50).optional(),
+        gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+        interests: z.array(z.string()).optional().describe("Replace interests with these ids (e.g. SLC_11); use snap_targeting_options to find ids"),
+        clear_interests: z.boolean().optional(),
+        os_type: z.enum(["iOS", "ANDROID"]).optional(),
+        clear_devices: z.boolean().optional(),
+        include_segments: z.array(id()).optional(),
+        remove_exclusions: z.array(id()).optional().describe("Segment ids to stop excluding"),
+      },
+      destructive: true,
+    },
+    ({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions }) =>
+      change("adsquad", adsquad_id, (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions })),
+  );
+
+  write(
+    "snap_set_schedule",
+    {
+      description: "Set start_time and/or end_time (ISO with offset) on a campaign or ad squad. end_time must be in the future and after the start. Previews unless confirm=true.",
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), start_time: z.string().optional(), end_time: z.string().optional() },
+      destructive: true,
+    },
+    ({ entity, id: entityId, start_time, end_time }) => change(entity, entityId, (cur) => planSchedule(cur, { startTime: start_time, endTime: end_time })),
+  );
+
+  write(
+    "snap_create_lookalike",
+    {
+      description: "Create a lookalike audience from a first-party (customer list) seed segment. Creates an audience only, nothing is delivered. Previews unless confirm=true.",
+      shape: { seed_segment_id: id(), name: z.string().min(3), countries: z.array(z.string()).default(["SA"]), type: z.enum(["BALANCE", "SIMILARITY", "REACH"]).default("BALANCE"), retention_days: z.number().int().min(1).max(180).default(180) },
+      repeatGuard: true,
+    },
+    async ({ seed_segment_id, name, countries, type, retention_days }) => {
+      const seed = await client.getEntity("segment", seed_segment_id);
+      const obj = buildLookalike({ adAccountId: account(), seedSegmentId: seed_segment_id, name, countries, type, retentionDays: retention_days });
+      return {
+        targets: [{ entity: "segment", obj: seed }],
+        state: { seed: { id: seed.id, name: seed.name, source_type: seed.source_type } },
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, type, countries: obj.creation_spec.countries, seed: seed.name, seed_size: seed.approximate_number_users, seed_source: seed.source_type }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const created = await client.createEntity("segment", obj);
+          return { applied: true, segment_id: created.id, name: created.name };
+        },
+      };
+    },
+  );
+
+  // Bulk edits of up to 20 items share one shape.
+  const idsField = z.array(id()).min(1).max(20);
+  const bulk = async (entity, ids, buildPlan) => {
+    const prepared = await prepareBulkEdit({ client, entity, ids, buildPlan });
+    return {
+      targets: prepared.items.map((i) => ({ entity, obj: i.current })),
+      state: { items: prepared.items.map((i) => i.current) },
+      blocked: prepared.will.length ? undefined : `Nothing to change. ${JSON.stringify(prepared.skipped)}`,
+      preview: prepared.preview,
+      execute: () => executeBulkEdit({ client, entity, prepared, buildPlan, logFile }),
+    };
+  };
+
+  write(
     "snap_bulk_exclude_segments",
-    { description: "Add the same buyer-exclusion audiences to up to 20 ad squads. Per-item preview (skips squads that already exclude them); stops at the first failure. Previews unless confirm=true.", inputSchema: { adsquad_ids: idsField, segment_ids: z.array(z.string()).min(1), confirm: confirmField } },
-    wrap(({ adsquad_ids, segment_ids, confirm }) => bulkEdit({ client, entity: "adsquad", ids: adsquad_ids, buildPlan: plans.exclude(segment_ids), confirm })),
+    { description: "Add the same buyer-exclusion audiences to up to 20 ad squads. Per-item preview (skips squads that already exclude them); stops at the first failure. Previews unless confirm=true.", shape: { adsquad_ids: idsField, segment_ids: z.array(id()).min(1) }, destructive: true },
+    ({ adsquad_ids, segment_ids }) => bulk("adsquad", adsquad_ids, plans.exclude(segment_ids)),
   );
 
-  server.registerTool(
+  write(
     "snap_bulk_set_budget",
     {
-      description: "Change the daily budget of up to 20 ad squads at once: mode 'set' (same value for all) or 'scale' (multiply each, e.g. 0.5 = half). Every item keeps the single-item guards (max +100%, minimum budget). Previews unless confirm=true.",
-      inputSchema: { adsquad_ids: idsField, mode: z.enum(["set", "scale"]), value: z.number().positive(), confirm: confirmField },
+      description: "Change the daily budget of up to 20 ad squads at once: mode 'set' (same value for all) or 'scale' (multiply each, e.g. 0.5 = half). Every item keeps the single-item guards (absolute limit, max +100% per step and per 24 hours, minimum budget). Previews unless confirm=true.",
+      shape: { adsquad_ids: idsField, mode: z.enum(["set", "scale"]), value: z.number().positive() },
+      destructive: true,
     },
-    wrap(({ adsquad_ids, mode, value, confirm }) => bulkEdit({ client, entity: "adsquad", ids: adsquad_ids, buildPlan: mode === "set" ? plans.budgetSet(value, env) : plans.budgetScale(value, env), confirm })),
+    ({ adsquad_ids, mode, value }) => bulk("adsquad", adsquad_ids, mode === "set" ? plans.budgetSet(value, policy, { history }) : plans.budgetScale(value, policy, { history })),
   );
 
-  server.registerTool(
+  write(
     "snap_bulk_set_schedule",
-    { description: "Set start/end time on up to 20 campaigns or ad squads. Previews unless confirm=true.", inputSchema: { entity: z.enum(["campaign", "adsquad"]), ids: idsField, start_time: z.string().optional(), end_time: z.string().optional(), confirm: confirmField } },
-    wrap(({ entity, ids, start_time, end_time, confirm }) => bulkEdit({ client, entity, ids, buildPlan: plans.schedule({ startTime: start_time, endTime: end_time }), confirm })),
+    { description: "Set start/end time on up to 20 campaigns or ad squads. Previews unless confirm=true.", shape: { entity: z.enum(["campaign", "adsquad"]), ids: idsField, start_time: z.string().optional(), end_time: z.string().optional() }, destructive: true },
+    ({ entity, ids, start_time, end_time }) => bulk(entity, ids, plans.schedule({ startTime: start_time, endTime: end_time })),
   );
 
-  server.registerTool(
+  write(
     "snap_bulk_rename",
-    { description: "Find-and-replace inside the names of up to 20 campaigns, ad squads or ads. Previews unless confirm=true.", inputSchema: { entity: entityEnum, ids: idsField, find: z.string().min(1), replace: z.string().default(""), confirm: confirmField } },
-    wrap(({ entity, ids, find, replace, confirm }) => bulkEdit({ client, entity, ids, buildPlan: plans.rename(find, replace), confirm })),
+    { description: "Find-and-replace inside the names of up to 20 campaigns, ad squads or ads. Previews unless confirm=true.", shape: { entity: entityEnum, ids: idsField, find: z.string().min(1), replace: z.string().default("") }, destructive: true },
+    ({ entity, ids, find, replace }) => bulk(entity, ids, plans.rename(find, replace)),
   );
 
-  server.registerTool(
+  write(
     "snap_influencer_batch",
     {
       description:
         "Influencer flow for up to 10 ad codes into one ad squad: for each, claim, wait for media, create creative, create a PAUSED ad. Expired codes are skipped and reported, others continue. Stops if a claimed code ends up incomplete. Claiming is one-way. Previews (format check only) unless confirm=true.",
-      inputSchema: {
-        adsquad_id: z.string(),
-        items: z.array(z.object({ ad_code: z.string(), name: z.string().describe("e.g. 'Paid - handle - SKU'"), ref: z.string().optional().describe("Your own reference, e.g. the Airtable request id") })).min(1).max(10),
+      shape: {
+        adsquad_id: id(),
+        items: z.array(z.object({ ad_code: z.string(), name: z.string().describe("e.g. 'Paid - handle - SKU'"), ref: z.string().optional().describe("Your own reference, e.g. the Airtable request id") }).strict()).min(1).max(10),
         headline: z.string(),
         url: z.string(),
         call_to_action: z.string().default("SHOP_NOW"),
-        profile_id: z.string().optional(),
-        confirm: confirmField,
+        profile_id: id().optional(),
       },
+      repeatGuard: true,
     },
-    wrap(async ({ adsquad_id, items, headline, url, call_to_action, profile_id, confirm }) => {
+    async ({ adsquad_id, items, headline, url, call_to_action, profile_id }) => {
       const checked = checkBatch(items);
       const profileId = brandProfile(profile_id);
+      const adAccountId = account();
       const squad = await client.getEntity("adsquad", adsquad_id);
-      buildCreative({ adAccountId: account(), profileId, mediaId: "preview", name: "preview", headline, callToAction: call_to_action, url });
-      if (!confirm) return { applied: false, dry_run: true, in_adsquad: { name: squad.name, status: squad.status }, codes: checked.length, names: checked.map((c) => c.name), warning: "Each successful claim uses up that creator's single-use code. Nothing was sent. Re-run with confirm=true.", note: "Expired codes cost nothing: they are skipped." };
-      return runBatch({ client, adAccountId: account(), profileId, adSquadId: adsquad_id, headline, callToAction: call_to_action, url, items });
-    }),
+      buildCreative({ adAccountId, profileId, mediaId: "preview", name: "preview", headline, callToAction: call_to_action, url });
+      return {
+        targets: [{ entity: "adsquad", obj: squad }],
+        state: { squad },
+        preview: { applied: false, dry_run: true, in_adsquad: { name: squad.name, status: squad.status }, codes: checked.length, names: checked.map((c) => c.name), warning: "Each successful claim uses up that creator's single-use code. Nothing was sent. Re-run with confirm=true.", note: "Expired codes cost nothing: they are skipped." },
+        execute: () => runBatch({ client, adAccountId, profileId, adSquadId: adsquad_id, headline, callToAction: call_to_action, url, items, logFile }),
+      };
+    },
   );
 
-  server.registerTool(
+  write(
     "snap_clone_creative",
     {
       description: "Duplicate a creative with a new name and optionally a new headline, link or call to action (same media). Creatives have no status, so nothing delivers until you attach one to an ad. Previews unless confirm=true.",
-      inputSchema: { creative_id: z.string(), name: z.string().min(3), headline: z.string().optional(), url: z.string().optional(), call_to_action: z.string().optional(), confirm: confirmField },
+      shape: { creative_id: id(), name: z.string().min(3), headline: z.string().optional(), url: z.string().optional(), call_to_action: z.string().optional() },
+      repeatGuard: true,
     },
-    wrap(async ({ creative_id, name, headline, url, call_to_action, confirm }) => {
+    async ({ creative_id, name, headline, url, call_to_action }) => {
       const source = await client.getEntity("creative", creative_id);
       const plan = planCloneCreative(source, { name, headline, url, callToAction: call_to_action });
-      if (!confirm) return { applied: false, dry_run: true, would_create: plan.summary, note: "Nothing created. Re-run with confirm=true." };
-      const { created, stripped } = await createWithAutoStrip(client, "creative", { ...plan.obj, ad_account_id: source.ad_account_id });
-      return { applied: true, creative_id: created.id, name: created.name, fields_snap_would_not_accept: stripped };
-    }),
+      const adAccountId = account();
+      return {
+        targets: [{ entity: "creative", obj: source }],
+        state: { source },
+        preview: { applied: false, dry_run: true, would_create: plan.summary, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const { created, stripped } = await createWithAutoStrip(client, "creative", { ...plan.obj, ad_account_id: adAccountId });
+          return { applied: true, creative_id: created.id, name: created.name, fields_snap_would_not_accept: stripped };
+        },
+      };
+    },
   );
 
-  server.registerTool(
+  write(
     "snap_undo",
     {
-      description: "Revert one of the changes this server applied (budget, bid, status, targeting, schedule, rename) using the change log. Refuses if the field was changed again since, unless force=true. Not for creates, claims or copies. Previews unless confirm=true.",
-      inputSchema: { n_from_last: z.number().int().min(1).max(50).default(1).describe("1 = the most recent undoable change"), force: z.boolean().default(false), confirm: confirmField },
+      description: "Revert one of the changes this server applied (budget, bid, status, targeting, schedule, rename) using the change log. An undo is checked like any other change: raising a budget or bid back up stays within the configured limits, and re-enabling shows and limits what would start delivering. Refuses if the field was changed again since, unless force=true. Not for creates, claims or copies. Previews unless confirm=true.",
+      shape: { n_from_last: z.number().int().min(1).max(50).default(1).describe("1 = the most recent undoable change"), force: z.boolean().default(false) },
+      destructive: true,
     },
-    wrap(async ({ n_from_last, force, confirm }) => {
-      const list = undoableEntries();
+    async ({ n_from_last, force }) => {
+      const list = undoableEntries(logFile);
       const entry = list[list.length - n_from_last];
       if (!entry) throw new Error("No undoable change found at that position");
-      const result = await applyChange({ client, entity: entry.entity, id: entry.id, confirm, plan: (cur) => planUndo(entry, cur, { force }), logExtra: { undoes: entry.at } });
-      return { ...result, reverting: { at: entry.at, name: entry.name, change: entry.change } };
-    }),
+      if (!["campaign", "adsquad", "ad"].includes(entry.entity)) throw new Error("That log entry cannot be undone");
+      const reverting = { at: entry.at, name: entry.name, change: entry.change };
+      const p = await change(entry.entity, entry.id, (cur) => planUndo(entry, cur, { force, env: policy, history }), { activation: true, logExtra: { undoes: entry.at }, extraPreview: { reverting } });
+      // The approval is tied to this exact log entry, so a newer change cannot shift which one gets undone.
+      return { ...p, state: { ...p.state, entry_at: entry.at } };
+    },
   );
 
-  server.registerTool(
+  write(
     "snap_create_pixel_audience",
     {
       description: "Create an audience of people who fired pixel events (e.g. ADD_CART or VIEW_CONTENT) within N days. Audience only, nothing is delivered. Pixel defaults to SNAP_PIXEL_ID. Previews unless confirm=true.",
-      inputSchema: { name: z.string().min(3), events: z.array(z.enum(PIXEL_EVENTS)).min(1), retention_days: z.number().int().min(1).max(180).default(30), pixel_id: z.string().optional(), confirm: confirmField },
+      shape: { name: z.string().min(3), events: z.array(z.enum(PIXEL_EVENTS)).min(1), retention_days: z.number().int().min(1).max(180).default(30), pixel_id: id().optional() },
+      repeatGuard: true,
     },
-    wrap(async ({ name, events, retention_days, pixel_id, confirm }) => {
-      const obj = buildPixelAudience({ adAccountId: account(), pixelId: pixel_id ?? env.SNAP_PIXEL_ID, name, events, retentionDays: retention_days });
-      if (!confirm) return { applied: false, dry_run: true, would_create: { name: obj.name, events, retention_days, pixel_id: obj.pixel_id }, note: "Nothing created. Re-run with confirm=true." };
-      const created = await client.createEntity("segment", obj);
-      return { applied: true, segment_id: created.id, name: created.name };
-    }),
+    async ({ name, events, retention_days, pixel_id }) => {
+      const obj = buildPixelAudience({ adAccountId: account(), pixelId: pixel_id ?? cfg.pixel, name, events, retentionDays: retention_days });
+      return {
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, events, retention_days, pixel_id: obj.pixel_id }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const created = await client.createEntity("segment", obj);
+          return { applied: true, segment_id: created.id, name: created.name };
+        },
+      };
+    },
   );
 
-  server.registerTool(
+  write(
     "snap_upload_customer_list",
     {
       description:
         "Create a customer-list audience from a local CSV of emails or phone numbers. Values are normalised and SHA-256 hashed on this machine; only hashes are uploaded and no raw value is ever shown or logged. Previews (counts only) unless confirm=true. Phone numbers without a country code get default_country_code (966).",
-      inputSchema: {
+      shape: {
         file_path: z.string().describe("Absolute path to a .csv with a header row"),
         kind: z.enum(["email", "phone"]),
         name: z.string().min(3).describe("Audience name"),
         column: z.string().optional().describe("Header of the column to use; found automatically when omitted"),
         default_country_code: z.string().default("966"),
-        confirm: confirmField,
       },
+      repeatGuard: true,
     },
-    wrap(async ({ file_path, kind, name, column, default_country_code, confirm }) => {
-      const read = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code });
-      const summary = { column_used: read.column, rows: read.rows, valid_unique: read.valid, invalid_skipped: read.invalid, duplicates_removed: read.duplicates };
-      if (!read.valid) throw new Error(`No valid ${kind} values found. ${JSON.stringify(summary)}`);
-      if (!confirm) return { applied: false, dry_run: true, would_upload: summary, audience_name: name, note: "Only SHA-256 hashes would be sent. Nothing was created. Re-run with confirm=true." };
-      const segment = await client.createEntity("segment", buildCustomerSegment({ adAccountId: account(), name }));
-      const sent = await uploadCustomerList({ client, segmentId: segment.id, hashes: read.hashes, kind });
-      return { applied: true, segment_id: segment.id, uploaded: sent, ...summary, note: "Snap needs a while to match the list before it shows a size." };
-    }),
+    async ({ file_path, kind, name, column, default_country_code }) => {
+      const data = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code });
+      const summary = { column_used: data.column, rows: data.rows, valid_unique: data.valid, invalid_skipped: data.invalid, duplicates_removed: data.duplicates };
+      if (!data.valid) throw new Error(`No valid ${kind} values found. ${JSON.stringify(summary)}`);
+      const adAccountId = account();
+      return {
+        state: { file: fileState(file_path), summary },
+        preview: { applied: false, dry_run: true, would_upload: summary, audience_name: name, note: "Only SHA-256 hashes would be sent. Nothing was created. Re-run with confirm=true." },
+        execute: async () => {
+          const segment = await client.createEntity("segment", buildCustomerSegment({ adAccountId, name }));
+          const sent = await uploadCustomerList({ client, segmentId: segment.id, hashes: data.hashes, kind, logFile });
+          return { applied: true, segment_id: segment.id, uploaded: sent, ...summary, note: "Snap needs a while to match the list before it shows a size." };
+        },
+      };
+    },
   );
 
-  const asyncEntity = z.enum(["adaccount", "campaign", "adsquad", "ad"]);
-  server.registerTool(
-    "snap_report_async_start",
-    {
-      description: "Start a large CSV report (no size limit, unlike the synchronous reports). Returns a report_run_id; check it with snap_report_async_status, then snap_report_async_download. Read-only.",
-      inputSchema: { entity: asyncEntity, id: z.string(), start_time: z.string(), end_time: z.string(), granularity: z.enum(["TOTAL", "DAY", "HOUR"]).default("DAY"), breakdown: z.enum(["campaign", "adsquad", "ad"]).optional() },
-    },
-    wrap((a) => startAsyncReport(client, a)),
-  );
-  server.registerTool(
-    "snap_report_async_status",
-    { description: "Status of an async report (STARTED, RUNNING, COMPLETED) (read-only).", inputSchema: { entity: asyncEntity, id: z.string(), report_run_id: z.string() } },
-    wrap((a) => asyncReportStatus(client, a)),
-  );
-  server.registerTool(
-    "snap_report_async_download",
-    { description: "Download a COMPLETED async report as a CSV into this project's exports/ folder and return its path and row count.", inputSchema: { entity: asyncEntity, id: z.string(), report_run_id: z.string(), file_name: z.string().optional() } },
-    wrap(({ entity, id, report_run_id, file_name }) => downloadAsyncReport(client, { entity, id, report_run_id, fileName: file_name })),
-  );
-
-  server.registerTool(
+  write(
     "snap_delete",
     {
       description:
         "Permanently delete a campaign, ad squad, ad or audience. Heavily guarded: the item must be PAUSED (audiences excepted), must have spent nothing in the last 30 days, a campaign must have no ACTIVE ad squads, and you must pass confirm_name equal to its exact name. Cannot be undone. Previews (and shows any blockers) unless confirm=true.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad", "ad", "segment"]), id: z.string(), confirm_name: z.string().optional().describe("Exact name of the item, copied from the preview"), confirm: confirmField },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad", "segment"]), id: id(), confirm_name: z.string().optional().describe("Exact name of the item, copied from the preview") },
+      destructive: true,
+      // confirm_name is typed after reading the preview, so it is not part of what the approval is bound to.
+      bind: ({ confirm_name, ...rest }) => rest,
     },
-    wrap(async ({ entity, id, confirm_name, confirm }) => {
-      const plan = await planDelete(client, { entity, id, confirmName: confirm_name });
-      if (!confirm) return { applied: false, dry_run: true, preview: plan.summary, note: plan.blockers.length ? "This cannot be deleted yet (see blocked_because)." : "Nothing was deleted. To delete, re-run with confirm=true and confirm_name set to the exact name." };
-      return executeDelete({ client, entity, id, plan });
-    }),
-  );
-
-  server.registerTool(
-    "snap_creative_fatigue",
-    {
-      description:
-        "Which ads are tired? Compares each ad of a campaign or ad squad this window vs the one before: FATIGUED (ROAS down 30%+ with higher frequency or lower swipe rate), WATCH, HEALTHY, STOPPED, NEW (read-only). end_time must be hour-aligned with an offset; days defaults to 7.",
-      inputSchema: { entity: z.enum(["campaign", "adsquad"]), id: z.string(), end_time: z.string().describe("e.g. 2026-10-27T00:00:00+03:00"), days: z.number().int().min(1).max(15).default(7), min_spend: z.number().default(50) },
+    async ({ entity, id: entityId, confirm_name }) => {
+      const plan = await planDelete(client, { entity, id: entityId, confirmName: confirm_name });
+      return {
+        targets: [{ entity, obj: plan.obj }],
+        state: { obj: plan.obj, children: plan.summary.will_also_remove ?? null },
+        blocked: plan.blockers.length ? `Refusing to delete: ${plan.blockers.join("; ")}` : undefined,
+        preview: { applied: false, dry_run: true, preview: plan.summary, note: plan.blockers.length ? "This cannot be deleted yet (see blocked_because)." : "Nothing was deleted. To delete, re-run with confirm=true, the approval_token and confirm_name set to the exact name." },
+        execute: () => executeDelete({ client, entity, id: entityId, plan, logFile }),
+      };
     },
-    wrap(({ entity, id, end_time, days, min_spend }) => fatigueReport(client, { entity, id, end_time, days, minSpend: min_spend })),
-  );
-
-  server.registerTool(
-    "snap_change_log",
-    { description: "Show the most recent changes this server applied.", inputSchema: { limit: z.number().int().min(1).max(200).default(20) } },
-    wrap(({ limit }) => readLog(limit)),
   );
 }

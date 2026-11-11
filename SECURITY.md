@@ -8,5 +8,8 @@ Please do not open a public issue for security problems. Use GitHub's "Report a 
 - If a client secret or refresh token is ever exposed, revoke it in Snap Ads Manager (Business Details > OAuth Apps) and create a new one.
 - `changes.log.jsonl` and `exports/` can contain account data; they are git-ignored too.
 
+- Rotate the client secret whenever it may have been seen outside your machine (pasted in a chat, a screenshot, a shared terminal): create a new secret in Snap Ads Manager, run `node scripts/save-secret.js`, then authorize again with `scripts/get-refresh-token.js`. The old secret and refresh token stop working.
+- Anything that can read `.env` holds the full API credentials and bypasses every guard in this server. Deny your AI client's file tools access to `.env` and `changes.log.jsonl`.
+
 ## Safety design
-Write tools preview by default, create objects paused, enforce size limits and verify changes after applying them. Still, this tool edits real campaigns: review each preview before confirming.
+Write tools need the approval token of a preview of the exact same request, create objects paused, enforce absolute and relative money limits that fail closed, only touch the configured ad account, and record every write in an audit log. The approval token is not a human signature: keep your MCP client's permission prompt on for write tools (see README, "What the approval token is not"). This tool edits real campaigns: review each preview before approving.

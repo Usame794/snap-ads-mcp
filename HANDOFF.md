@@ -1,13 +1,13 @@
 # Handoff: snap-ads-mcp
 
-Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API. 55 tools. All 87 tests are mocked and pass (`npm test`). Read `README.md` first for setup and the tool table.
+Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API. 55 tools. All tests are mocked and pass (`npm test`). Read `README.md` first for setup and the tool table.
 
 ## State
 - Feature-complete for the scope below. One local commit on `main`. Not yet pushed.
 - Verified live against the real Snap API on throwaway paused objects (list in README "Verified live").
 - Open items, in priority order:
   1. Push to GitHub as **Private**, review, then make Public (see "Publishing").
-  2. Optional: rotate the OAuth client secret (it was pasted into a chat once; the owner chose not to).
+  2. Rotate the OAuth client secret and re-authorize before the repository is made public (see SECURITY.md).
   3. Not built (see below).
 
 ## Architecture (src/)
@@ -19,9 +19,9 @@ Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API. 55
 - `scripts/`: `check.js`, `get-refresh-token.js`, `save-secret.js`, `smoke.js` (9 live read checks), `weekly-report.js`.
 
 ## Safety design (keep it)
-- Writes preview by default (`confirm=false`); nothing is sent without `confirm=true`.
+- Writes go through one path in `tools.js` (`write`): preview with a single-use `approval_token` (`approval.js`), ownership check (`ownership.js`), audit intent/result (`audit-log.js`). `confirm=true` without the token of that exact preview sends nothing.
 - Everything created is PAUSED. Status is only ACTIVE or PAUSED.
-- Limits: budget +100% per step, bid +50%, minimum daily budget, 20 items per bulk action (env-configurable).
+- Limits live in `policy.js`, validated at startup (invalid = server does not start): absolute daily budget / bid / lifetime / activation ceilings, +100% budget and +50% bid per step and per 24h, minimum daily budget. 20 items per bulk action (fixed).
 - Each change is read back and verified (`containsDeep` compares only changed fields), then appended to `changes.log.jsonl` with before/after so `snap_undo` works (it refuses if the object changed again).
 - Multi-step flows stop at the first failure. `snap_delete` is guarded: paused, no spend in 30 days, no active children, exact name typed.
 - Reads retry on 429/5xx/network with backoff. Writes retry only on 429, so a create or claim is never repeated.
