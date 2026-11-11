@@ -51,7 +51,18 @@ export function loadPolicy(env = process.env) {
   const maxDailyBudget = readNumber(env, "SNAP_MAX_DAILY_BUDGET", 1000, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
   const maxBid = readNumber(env, "SNAP_MAX_BID", 50, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
   const maxActivationDailyBudget = readNumber(env, "SNAP_MAX_ACTIVATION_DAILY_BUDGET", maxDailyBudget * 5, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
+  // Market settings. There is deliberately no built-in default country or phone code: a wrong default would target the wrong
+  // market or hash the wrong phone numbers without anyone noticing.
+  const country = env.SNAP_DEFAULT_COUNTRY === undefined || String(env.SNAP_DEFAULT_COUNTRY).trim() === "" ? null : String(env.SNAP_DEFAULT_COUNTRY).trim().toLowerCase();
+  if (country && !/^[a-z]{2}$/.test(country)) errors.push("SNAP_DEFAULT_COUNTRY must be a 2-letter country code such as us, gb or sa.");
+  const phoneCode = env.SNAP_DEFAULT_PHONE_CODE === undefined || String(env.SNAP_DEFAULT_PHONE_CODE).trim() === "" ? null : String(env.SNAP_DEFAULT_PHONE_CODE).trim();
+  if (phoneCode && !/^[1-9]\d{0,3}$/.test(phoneCode)) errors.push("SNAP_DEFAULT_PHONE_CODE must be digits only, without + or 00, such as 1, 44 or 966.");
+  const offset = env.SNAP_REPORT_UTC_OFFSET === undefined || String(env.SNAP_REPORT_UTC_OFFSET).trim() === "" ? "+00:00" : String(env.SNAP_REPORT_UTC_OFFSET).trim();
+  if (!/^[+-](0\d|1[0-4]):[0-5]\d$/.test(offset)) errors.push("SNAP_REPORT_UTC_OFFSET must look like +03:00 or -05:00.");
   const policy = {
+    defaultCountry: country && /^[a-z]{2}$/.test(country) ? country : null,
+    defaultPhoneCode: phoneCode && /^[1-9]\d{0,3}$/.test(phoneCode) ? phoneCode : null,
+    reportUtcOffset: /^[+-](0\d|1[0-4]):[0-5]\d$/.test(offset) ? offset : "+00:00",
     minDailyBudget,
     maxDailyBudget,
     maxBid,

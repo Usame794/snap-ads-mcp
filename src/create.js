@@ -104,7 +104,7 @@ export async function uploadMedia({ client, adAccountId, filePath, name, logFile
 }
 
 // A new ad squad from a few choices. Always PAUSED. Defaults suit web purchase squads.
-export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries = ["sa"], minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", now = startIn(10), env = process.env }) {
+export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", now = startIn(10), env = process.env }) {
   const policy = loadPolicy(env);
   const n = String(name ?? "").trim();
   if (n.length < 3) throw new Error("name must be at least 3 characters");
@@ -116,6 +116,7 @@ export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy =
   if (bidStrategy === "AUTO_BID" && bid != null) throw new Error("bid is not used with AUTO_BID; leave it out");
   if (!pixelId) throw new Error("pixel_id is required (or set SNAP_PIXEL_ID)");
   if (!["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"].includes(conversionWindow)) throw new Error("conversion_window must be SWIPE_7DAY or SWIPE_28DAY_VIEW_1DAY");
+  if (!Array.isArray(countries) || !countries.length) throw new Error("countries is required: give 2-letter codes such as [\"us\"], or set SNAP_DEFAULT_COUNTRY");
   const geos = countries.map((c) => String(c).trim().toLowerCase());
   if (!geos.length || geos.some((c) => !/^[a-z]{2}$/.test(c))) throw new Error("countries must be 2-letter codes");
   const targeting = { regulated_content: false, geos: geos.map((country_code) => ({ country_code })) };

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Weekly Snapchat report (read-only): spend and results vs last week, health issues, tired ads, review problems, pixel issues.
-// Usage: node scripts/weekly-report.js [end-date YYYY-MM-DD]   (end date = day after the last day to include; default today, Asia/Riyadh)
+// Usage: node scripts/weekly-report.js [end-date YYYY-MM-DD]   (end date = day after the last day to include; default today in SNAP_REPORT_UTC_OFFSET, UTC when not set)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnv, ROOT } from "../src/env.js";
+import { loadPolicy } from "../src/policy.js";
 import { SnapClient } from "../src/snap.js";
 import { healthCheck, pixelHealth, reviewIssues } from "../src/audit.js";
 import { fatigueReport, shiftIso } from "../src/fatigue.js";
@@ -12,10 +13,12 @@ import { collectBreakdown, summarizeRow } from "../src/report.js";
 loadEnv();
 const client = new SnapClient();
 const acct = process.env.SNAP_AD_ACCOUNT_ID;
-const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+const offset = loadPolicy(process.env).reportUtcOffset; // e.g. +03:00
+const offsetMs = (offset[0] === "-" ? -1 : 1) * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4))) * 60_000;
+const today = new Date(Date.now() + offsetMs).toISOString().slice(0, 10);
 const endDate = process.argv[2] ?? today;
 if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) throw new Error("end date must look like 2026-10-27");
-const end = `${endDate}T00:00:00+03:00`;
+const end = `${endDate}T00:00:00${offset}`;
 const week = { start_time: shiftIso(end, -7 * 86_400_000), end_time: end };
 const prevWeek = { start_time: shiftIso(end, -14 * 86_400_000), end_time: week.start_time };
 

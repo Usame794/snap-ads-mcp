@@ -1,7 +1,9 @@
 # Security policy
 
 ## Reporting a vulnerability
-Please do not open a public issue for security problems. Use GitHub's "Report a vulnerability" (private security advisory) on this repository.
+Please do not open a public issue for security problems. Use GitHub's "Report a vulnerability" (private security advisory) on this repository. Never include real tokens, secrets or account data in a report; describe how to reproduce it with a mock.
+
+Supported version: the latest release on `main`. This is a small, unofficial project maintained on a best-effort basis.
 
 ## Handling secrets
 - Credentials live only in your local `.env`, which is git-ignored. Never commit it, paste it in issues, or share logs that contain it.

@@ -115,7 +115,7 @@ test("chunked upload: INIT, one ADD per chunk (absolute paths), then FINALIZE", 
 });
 
 test("ad squad builder: paused, purchase goal, max bid, validated", () => {
-  const ok = { campaignId: "c", name: "Squad test", dailyBudget: 20, bid: 12.5, pixelId: "px", now: "2026-10-26T12:00:00.000Z" };
+  const ok = { campaignId: "c", name: "Squad test", dailyBudget: 20, bid: 12.5, pixelId: "px", countries: ["sa"], now: "2026-10-26T12:00:00.000Z" };
   const s = buildAdSquad(ok);
   assert.equal(s.status, "PAUSED");
   assert.equal(s.bid_micro, 12_500_000);
@@ -141,7 +141,7 @@ test("ad squad creation posts to the campaign's adsquads endpoint", async () => 
     return json({ request_status: "SUCCESS", adsquads: [{ sub_request_status: "SUCCESS", adsquad: { ...o, id: "sq1" } }] });
   };
   const client = new SnapClient({ env, fetchImpl });
-  const made = await createAdSquad({ client, adsquad: buildAdSquad({ campaignId: "c9", name: "Squad test", dailyBudget: 10, bid: 1, pixelId: "px" }), logFile: lf() });
+  const made = await createAdSquad({ client, adsquad: buildAdSquad({ campaignId: "c9", name: "Squad test", dailyBudget: 10, bid: 1, pixelId: "px", countries: ["sa"] }), logFile: lf() });
   assert.equal(made.id, "sq1");
   assert.match(calls[0].u, /\/campaigns\/c9\/adsquads$/);
   assert.equal("id" in calls[0].body.adsquads[0], false);

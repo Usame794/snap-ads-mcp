@@ -18,12 +18,19 @@ test("email and phone normalisation", () => {
   assert.equal(normalizeEmail("  Ali@Example.COM "), "ali@example.com");
   assert.equal(normalizeEmail("not an email"), null);
   assert.equal(normalizeEmail(""), null);
-  assert.equal(normalizePhone("0555123456"), "966555123456");
+  assert.equal(normalizePhone("0555123456", "966"), "966555123456");
   assert.equal(normalizePhone("+966 55 512 3456"), "966555123456");
   assert.equal(normalizePhone("00966555123456"), "966555123456");
-  assert.equal(normalizePhone("555123456"), "966555123456");
-  assert.equal(normalizePhone("12"), null);
+  assert.equal(normalizePhone("555123456", "966"), "966555123456");
+  assert.equal(normalizePhone("12", "966"), null);
   assert.equal(normalizePhone("0555123456", "971"), "971555123456");
+  // a long number without + already carries its country code and is kept as it is
+  assert.equal(normalizePhone("971555123456", "966"), "971555123456");
+  // no default country code: local numbers are invalid (guessing would hash the wrong number); international ones still work
+  assert.equal(normalizePhone("0555123456"), null);
+  assert.equal(normalizePhone("555123456"), null);
+  assert.equal(normalizePhone("+44 7700 900123"), "447700900123");
+  assert.equal(normalizePhone("0044 7700 900123"), "447700900123");
 });
 
 test("reading a CSV: finds the column, hashes, drops invalid and duplicates, never returns raw values", () => {
@@ -33,7 +40,8 @@ test("reading a CSV: finds the column, hashes, drops invalid and duplicates, nev
   assert.deepEqual([r.column, r.rows, r.valid, r.invalid, r.duplicates], ["e-mail", 4, 2, 1, 1]);
   assert.deepEqual(r.hashes.sort(), [sha("a@x.com"), sha("d@x.com")].sort());
   assert.ok(!JSON.stringify(r).includes("@x.com"), "no raw email in the result");
-  const p = readIdentifiers(f, { kind: "phone" });
+  assert.equal(readIdentifiers(f, { kind: "phone" }).valid, 0, "local numbers need a country code");
+  const p = readIdentifiers(f, { kind: "phone", defaultCountryCode: "966" });
   assert.equal(p.valid, 3);
   assert.ok(p.hashes.includes(sha("966555111111")));
   assert.throws(() => readIdentifiers(f, { kind: "email", column: "Nope" }), /Could not find/);

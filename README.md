@@ -1,8 +1,21 @@
 # snap-ads-mcp
 
-Local MCP server for the Snapchat Marketing API. It reads, edits and creates campaigns, ad squads and ads, and turns influencer **ad codes** into paused ads.
+A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude Desktop and other MCP clients) work with **your own** Snapchat ad account: read performance, audit campaigns, and make careful, reviewable changes. It also turns creators' **ad codes** into paused ads.
 
-> **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool changes real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Review every preview before confirming.
+> **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool can change real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Check Snap's developer terms for your own use. Review every preview before approving.
+
+## What it is, and what it is not
+- **It runs on your machine, with your own Snapchat OAuth app and your own ad account.** Nothing is hosted or shared, and no credentials leave your computer except to Snap's API.
+- **It is a safety-first tool, not an autopilot.** Writes are previewed first, created things start paused, and there are hard limits on money. See "Safety rules" below, and read "What the approval token is not".
+- **It is not a hosted service.** Services that only accept remote MCP servers (for example ChatGPT connectors) cannot use it as it is. Do not expose it on the internet.
+- **Money limits are in your account's currency.** Defaults (`SNAP_MAX_DAILY_BUDGET=1000`, `SNAP_MAX_BID=50`) are deliberately conservative; set your own in `.env`.
+
+## Quick start
+1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
+2. Create a Snapchat OAuth app and connect it to your account: follow **Setup (one time)** below (about 10 minutes).
+3. Copy the safety and market settings from `.env.example` into `.env` and set **your** limits, `SNAP_DEFAULT_COUNTRY`, `SNAP_ACCOUNT_CURRENCY` and `SNAP_REPORT_UTC_OFFSET`.
+4. Start with `SNAP_READ_ONLY=1`: connect your MCP client, try `snap_ping`, a report, and a few previews, and compare the numbers with Ads Manager. Remove the setting when you are comfortable.
+5. Keep your client's permission prompt **on** for write tools.
 
 ## Safety rules (built in)
 - Every write tool works in **two steps**. `confirm=false` (the default) returns a preview and a single-use `approval_token`. To apply, the same arguments are sent again with `confirm=true` and that token. The token is bound to the tool, the ad account, the arguments and the state of the items at preview time: if anything changed, or the token is reused, expired or from another request, nothing is sent.
@@ -39,6 +52,9 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_APPROVAL_TTL_SECONDS` | 600 | Lifetime of an approval token |
 | `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
 | `SNAP_HTTP_TIMEOUT_MS` | 60000 | Deadline for each API request |
+| `SNAP_DEFAULT_COUNTRY` | not set | 2-letter country used when a tool is called without countries (new ad squads, lookalikes, targeting lookups). **Not set = countries must always be given**; there is no hidden default market |
+| `SNAP_DEFAULT_PHONE_CODE` | not set | Country code (digits, no `+`) for local phone numbers in customer lists. Not set = local numbers are counted as invalid instead of being guessed |
+| `SNAP_REPORT_UTC_OFFSET` | `+00:00` | Offset for `scripts/weekly-report.js` and `scripts/smoke.js` day boundaries, e.g. `+03:00` |
 
 Reports state what their numbers mean (`basis`): amounts are Snap micro-currency divided by 1,000,000 in the account currency, purchases are Snap-attributed, and attribution uses the account's default windows unless you pin them with `swipe_up_attribution_window` / `view_attribution_window` on `snap_report` and `snap_report_daily`. Totals are computed from raw values (account ROAS = purchase value / spend). A report that was cut off says `incomplete` or `truncated`.
 
@@ -104,7 +120,7 @@ Each user runs this server locally with their own OAuth app and their own ad acc
 ## Setup (one time)
 1. In Snap Ads Manager open **Business Details > OAuth Apps** and create an app. Redirect URL must be https and not `localhost`, for example `https://127.0.0.1/callback`. **The client secret is shown once**: select it and copy it before leaving the page.
 2. Copy `.env.example` to `.env`, fill in `SNAP_CLIENT_ID` and `SNAP_REDIRECT_URI`.
-3. Save the secret from your clipboard: `node scripts/save-secret.js` (it refuses text that does not look like a secret and clears the clipboard).
+3. Save the secret from your clipboard: `node scripts/save-secret.js` (macOS only; it refuses text that does not look like a secret and clears the clipboard). On other systems, add `SNAP_CLIENT_SECRET=...` to `.env` yourself and make the file private (`chmod 600 .env`).
 4. Open this URL in a browser signed in to Snapchat and approve (replace the two values):
    `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=snap-ads-mcp`
 5. The browser redirects to `...?code=...`. Within a minute or two run: `CODE=THE_CODE node scripts/get-refresh-token.js`. It saves `SNAP_REFRESH_TOKEN` into `.env` and prints nothing secret.
@@ -132,7 +148,7 @@ Use the absolute path to `node` as `command` if the app cannot find it. The serv
 **ChatGPT**: ChatGPT connects to *remote* MCP servers (an https URL) through its connectors / developer mode, not to local stdio programs. This server is local only, so it cannot be added to ChatGPT as it is. Doing that would need a hosted version with per-user OAuth and encrypted token storage (see "Not built"). Do not expose this server publicly as it is: it can change real ad campaigns. Other desktop MCP clients that launch local stdio servers (Cursor, VS Code, Cline) work with the same `command` and `args` as above.
 
 ## Verified live (against the real Snapchat API)
-Everything above has run live except the items under "Not run live". That includes: pause/enable (single and bulk), budget, bid, targeting (countries, age, gender, interests, devices, include segments, remove exclusions), schedule, rename, bulk edits, undo, campaign / ad squad copy, ad clone, creative clone, create campaign, create ad squad (max bid and auto-bid, with exclusions), lookalike, pixel audience, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), all reports (including async CSV), health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
+These ran live on the maintainer's own account, before the safety layer described above was added. The safety layer, the reports' extra fields and the market settings are covered by mocked tests only; check them with `SNAP_READ_ONLY=1` on your account first. Everything above has run live except the items under "Not run live". That includes: pause/enable (single and bulk), budget, bid, targeting (countries, age, gender, interests, devices, include segments, remove exclusions), schedule, rename, bulk edits, undo, campaign / ad squad copy, ad clone, creative clone, create campaign, create ad squad (max bid and auto-bid, with exclusions), lookalike, pixel audience, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), all reports (including async CSV), health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 Not run live on their own: `snap_create_creative` and `snap_create_ad` (they ran inside the influencer flow), a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, and a customer-list upload of real data.
 
 ## Not built
@@ -141,4 +157,4 @@ Not run live on their own: `snap_create_creative` and `snap_create_ad` (they ran
 - Anything that spends money without a separate, explicit enable step.
 
 ## Development
-`npm install`, then `npm test` (all tests use a mocked API; none touch your account).
+`npm ci`, then `npm test` (all tests use a mocked API; none touch your account). See `ARCHITECTURE.md` for the design and `CONTRIBUTING.md` before sending changes.

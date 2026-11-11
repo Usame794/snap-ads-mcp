@@ -56,8 +56,9 @@ test("targeting options: country code passed, results searchable, bad kinds refu
   const all = await targetingOptions(client, { kind: "interests_lifestyle", country: "SA" });
   assert.equal(calls[0].q.country_code, "sa");
   assert.equal(all.length, 2);
-  assert.deepEqual((await targetingOptions(client, { kind: "interests_lifestyle", search: "fash" })).map((r) => r.id), ["SLC_9"]);
-  await assert.rejects(() => targetingOptions(client, { kind: "nope" }), /kind must be/);
+  assert.deepEqual((await targetingOptions(client, { kind: "interests_lifestyle", country: "sa", search: "fash" })).map((r) => r.id), ["SLC_9"]);
+  await assert.rejects(() => targetingOptions(client, { kind: "interests_lifestyle" }), /country is required/);
+  await assert.rejects(() => targetingOptions(client, { kind: "nope", country: "sa" }), /kind must be/);
   await assert.rejects(() => targetingOptions(client, { kind: "regions", country: "saudi" }), /2-letter/);
 });
 
@@ -66,8 +67,9 @@ test("lookalike builder matches the shape Snap uses and validates", () => {
   assert.deepEqual(l.creation_spec, { seed_segment_id: "seed", country: "SA", countries: ["SA", "AE"], type: "REACH" });
   assert.equal(l.source_type, "LOOKALIKE");
   assert.equal(l.retention_in_days, 90);
-  assert.throws(() => buildLookalike({ adAccountId: "a", name: "abc" }), /seed_segment_id/);
-  assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc", type: "X" }), /type must/);
-  assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc", retentionDays: 500 }), /1 to 180/);
+  assert.throws(() => buildLookalike({ adAccountId: "a", name: "abc", countries: ["SA"] }), /seed_segment_id/);
+  assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc" }), /countries is required/);
+  assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc", countries: ["SA"], type: "X" }), /type must/);
+  assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc", countries: ["SA"], retentionDays: 500 }), /1 to 180/);
   assert.throws(() => buildLookalike({ adAccountId: "a", seedSegmentId: "s", name: "abc", countries: ["saudi"] }), /2-letter/);
 });

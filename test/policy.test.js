@@ -107,7 +107,7 @@ test("regression F-01: cumulative increases are bounded by the value at the star
 });
 
 test("regression F-01: a new ad squad cannot be created above the absolute budget or bid limit", () => {
-  const base = { campaignId: "c", name: "big", pixelId: "p" };
+  const base = { campaignId: "c", name: "big", pixelId: "p", countries: ["us"] };
   assert.throws(() => buildAdSquad({ ...base, dailyBudget: 1e6, bid: 5 }), /absolute limit of 1000/);
   assert.throws(() => buildAdSquad({ ...base, dailyBudget: 50, bid: 5000 }), /absolute limit of 50/);
   assert.throws(() => buildAdSquad({ ...base, dailyBudget: 50, bid: 5, env: { SNAP_MIN_DAILY_BUDGET: "60" } }), /at least 60/);

@@ -1,7 +1,7 @@
 {
   "name": "snap-ads-mcp",
   "version": "0.2.0",
-  "description": "Local MCP server for Snapchat Marketing API: read and safely update campaigns, ad squads and ads.",
+  "description": "Unofficial local MCP server for the Snapchat Marketing API: reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -21,9 +21,28 @@
   "private": false,
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "snapchat",
     "snapchat-ads",
+    "snap-marketing-api",
     "claude",
-    "model-context-protocol"
+    "advertising"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Usame794/snap-ads-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Usame794/snap-ads-mcp/issues"
+  },
+  "homepage": "https://github.com/Usame794/snap-ads-mcp#readme",
+  "files": [
+    "src",
+    "scripts",
+    "README.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "LICENSE",
+    ".env.example"
   ]
 }

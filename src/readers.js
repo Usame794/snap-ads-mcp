@@ -63,7 +63,8 @@ export const TARGETING_KINDS = {
   age_groups: { path: () => "/targeting/v1/demographics/age_group" },
 };
 
-export async function targetingOptions(client, { kind, country = "sa", search }) {
+export async function targetingOptions(client, { kind, country, search }) {
+  if (!country) throw new Error("country is required (2-letter code such as us), or set SNAP_DEFAULT_COUNTRY");
   const k = TARGETING_KINDS[kind];
   if (!k) throw new Error(`kind must be one of ${Object.keys(TARGETING_KINDS).join(", ")}`);
   const cc = String(country).toLowerCase();
@@ -75,10 +76,11 @@ export async function targetingOptions(client, { kind, country = "sa", search })
 }
 
 // Lookalike audience from a first-party (customer list) seed segment.
-export function buildLookalike({ adAccountId, seedSegmentId, name, countries = ["SA"], type = "BALANCE", retentionDays = 180 }) {
+export function buildLookalike({ adAccountId, seedSegmentId, name, countries, type = "BALANCE", retentionDays = 180 }) {
   const n = String(name ?? "").trim();
   if (n.length < 3) throw new Error("name must be at least 3 characters");
   if (!seedSegmentId) throw new Error("seed_segment_id is required");
+  if (!Array.isArray(countries) || !countries.length) throw new Error("countries is required: give 2-letter codes such as [\"US\"], or set SNAP_DEFAULT_COUNTRY");
   const list = countries.map((c) => String(c).trim().toUpperCase());
   if (!list.length || list.some((c) => !/^[A-Z]{2}$/.test(c))) throw new Error("countries must be 2-letter codes");
   if (!["BALANCE", "SIMILARITY", "REACH"].includes(type)) throw new Error("type must be BALANCE, SIMILARITY or REACH");

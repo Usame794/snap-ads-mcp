@@ -96,7 +96,7 @@ export async function setup({ world = sampleWorld(), env = {}, elicit } = {}) {
   const snap = fakeSnap(world);
   const dir = mkdtempSync(join(tmpdir(), "snap-safety-"));
   const logFile = env.SNAP_LOG_FILE ?? join(dir, "changes.log.jsonl");
-  const fullEnv = { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "r", SNAP_AD_ACCOUNT_ID: ACC, SNAP_BRAND_PROFILE_ID: "prof-1", SNAP_PIXEL_ID: "pix-1", SNAP_LOG_FILE: logFile, ...env };
+  const fullEnv = { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "r", SNAP_AD_ACCOUNT_ID: ACC, SNAP_BRAND_PROFILE_ID: "prof-1", SNAP_PIXEL_ID: "pix-1", SNAP_DEFAULT_COUNTRY: "sa", SNAP_DEFAULT_PHONE_CODE: "966", SNAP_LOG_FILE: logFile, ...env };
   const server = new McpServer({ name: "t", version: "1" });
   registerTools(server, new SnapClient({ env: fullEnv, fetchImpl: snap.fetchImpl, sleep: async () => {} }), fullEnv);
   const client = new Client({ name: "c", version: "1" }, elicit ? { capabilities: { elicitation: { form: {} } } } : undefined);

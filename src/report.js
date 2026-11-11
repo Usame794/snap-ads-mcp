@@ -12,7 +12,7 @@ const offsetMinutes = (iso) => {
 // A reporting window must be two real instants with an explicit UTC offset, in order. Anything else is ambiguous.
 export function checkWindow(start_time, end_time) {
   for (const [name, v] of [["start_time", start_time], ["end_time", end_time]]) {
-    if (typeof v !== "string" || !OFFSET_RE.test(v) || Number.isNaN(Date.parse(v))) throw new Error(`${name} must be an ISO date-time with an offset, e.g. 2026-10-19T00:00:00+03:00`);
+    if (typeof v !== "string" || !OFFSET_RE.test(v) || Number.isNaN(Date.parse(v))) throw new Error(`${name} must be an ISO date-time with an offset, e.g. 2026-10-19T00:00:00+00:00`);
   }
   if (!(Date.parse(end_time) > Date.parse(start_time))) throw new Error("end_time must be after start_time");
 }

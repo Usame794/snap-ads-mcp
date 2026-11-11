@@ -54,6 +54,10 @@ export function registerTools(server, client, env = process.env) {
   const ownership = new Ownership(client);
   const history = (entityId, field) => windowStartMicro(logFile, entityId, field);
 
+  const defaultCountries = () => {
+    if (!policy.defaultCountry) throw new Error("countries is required (2-letter codes such as [\"us\"]). Set SNAP_DEFAULT_COUNTRY in .env to use a default.");
+    return [policy.defaultCountry];
+  };
   const account = (given) => {
     const a = given ?? cfg.account;
     if (!a) throw new Error("ad_account_id missing and SNAP_AD_ACCOUNT_ID not set");
@@ -285,7 +289,7 @@ export function registerTools(server, client, env = process.env) {
       shape: {
         entity: entityEnum,
         id: id(),
-        start_time: z.string().describe("ISO date-time on the hour, with offset, e.g. 2026-10-19T00:00:00+03:00"),
+        start_time: z.string().describe("ISO date-time on the hour, with offset, e.g. 2026-10-19T00:00:00+00:00"),
         end_time: z.string(),
         granularity: z.enum(["TOTAL", "DAY", "HOUR"]).default("TOTAL"),
         fields: z.array(z.string()).default(["impressions", "spend", "swipes", "conversion_purchases", "conversion_purchases_value", "frequency"]),
@@ -318,7 +322,7 @@ export function registerTools(server, client, env = process.env) {
     "snap_report",
     {
       description: "Performance table for a campaign or ad squad broken down by ad squad or ad: spend, purchases, ROAS, CPA, swipe rate and frequency (read-only). Times must fall on the hour, with offset.",
-      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]), start_time: z.string().describe("e.g. 2026-10-19T00:00:00+03:00"), end_time: z.string(), ...attributionShape },
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]), start_time: z.string().describe("e.g. 2026-10-19T00:00:00+00:00"), end_time: z.string(), ...attributionShape },
     },
     (args) => breakdownReport(client, args),
   );
@@ -358,16 +362,16 @@ export function registerTools(server, client, env = process.env) {
     "snap_targeting_options",
     {
       description: "Look up targeting ids (read-only): interests (lifestyle, shopper, visitation), regions, languages, age groups. Use the returned ids with snap_set_targeting.",
-      shape: { kind: z.enum(Object.keys(TARGETING_KINDS)), country: z.string().default("sa"), search: z.string().optional() },
+      shape: { kind: z.enum(Object.keys(TARGETING_KINDS)), country: z.string().optional().describe("2-letter code; defaults to SNAP_DEFAULT_COUNTRY"), search: z.string().optional() },
     },
-    ({ kind, country, search }) => targetingOptions(client, { kind, country, search }),
+    ({ kind, country, search }) => targetingOptions(client, { kind, country: country ?? policy.defaultCountry, search }),
   );
 
   read(
     "snap_report_daily",
     {
       description: "Day-by-day performance (spend, purchases, ROAS, CPA, swipe rate) for a campaign, ad squad or ad, up to 31 days (read-only). Day boundaries must be local midnight with offset.",
-      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+03:00"), end_time: z.string(), ...attributionShape },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+00:00"), end_time: z.string(), ...attributionShape },
     },
     (args) => dailyReport(client, args),
   );
@@ -386,7 +390,7 @@ export function registerTools(server, client, env = process.env) {
     {
       description: "Audit every ACTIVE campaign's ACTIVE ad squads (read-only): no buyer exclusion, high frequency, low swipe rate, low ROAS, spend with no purchases, squads under a paused campaign. Returns the ad squad ids to act on.",
       shape: {
-        start_time: z.string().describe("Window start, e.g. 2026-10-19T00:00:00+03:00"),
+        start_time: z.string().describe("Window start, e.g. 2026-10-19T00:00:00+00:00"),
         end_time: z.string(),
         max_frequency: z.number().default(5),
         min_swipe_rate_pct: z.number().default(0.15),
@@ -448,7 +452,7 @@ export function registerTools(server, client, env = process.env) {
     "snap_creative_fatigue",
     {
       description: "Which ads are tired? Compares each ad of a campaign or ad squad this window vs the one before: FATIGUED (ROAS down 30%+ with higher frequency or lower swipe rate), WATCH, HEALTHY, STOPPED, NEW (read-only). end_time must be hour-aligned with an offset; days defaults to 7.",
-      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), end_time: z.string().describe("e.g. 2026-10-27T00:00:00+03:00"), days: z.number().int().min(1).max(15).default(7), min_spend: z.number().default(50) },
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), end_time: z.string().describe("e.g. 2026-10-27T00:00:00+00:00"), days: z.number().int().min(1).max(15).default(7), min_spend: z.number().default(50) },
     },
     ({ entity, id: entityId, end_time, days, min_spend }) => fatigueReport(client, { entity, id: entityId, end_time, days, minSpend: min_spend }),
   );
@@ -742,7 +746,7 @@ export function registerTools(server, client, env = process.env) {
         os_type: z.enum(["iOS", "ANDROID"]).optional(),
         exclude_segment_ids: z.array(id()).optional().describe("e.g. past-buyer audiences"),
         include_segment_ids: z.array(id()).optional(),
-        countries: z.array(z.string()).default(["sa"]),
+        countries: z.array(z.string()).optional().describe("2-letter codes, e.g. [\"us\"]; defaults to SNAP_DEFAULT_COUNTRY"),
         min_age: z.number().int().min(13).max(50).optional(),
         max_age: z.number().int().min(13).max(50).optional(),
         gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
@@ -752,9 +756,9 @@ export function registerTools(server, client, env = process.env) {
     },
     async (a) => {
       const campaign = await client.getEntity("campaign", a.campaign_id);
-      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries, minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, env: policy });
+      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries ?? defaultCountries(), minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, env: policy });
       const adsquad = build();
-      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries, excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, status: "PAUSED" };
+      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries ?? defaultCountries(), excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, status: "PAUSED" };
       return {
         targets: [{ entity: "campaign", obj: campaign }],
         state: { campaign },
@@ -801,12 +805,12 @@ export function registerTools(server, client, env = process.env) {
     "snap_create_lookalike",
     {
       description: "Create a lookalike audience from a first-party (customer list) seed segment. Creates an audience only, nothing is delivered. Previews unless confirm=true.",
-      shape: { seed_segment_id: id(), name: z.string().min(3), countries: z.array(z.string()).default(["SA"]), type: z.enum(["BALANCE", "SIMILARITY", "REACH"]).default("BALANCE"), retention_days: z.number().int().min(1).max(180).default(180) },
+      shape: { seed_segment_id: id(), name: z.string().min(3), countries: z.array(z.string()).optional().describe("2-letter codes; defaults to SNAP_DEFAULT_COUNTRY"), type: z.enum(["BALANCE", "SIMILARITY", "REACH"]).default("BALANCE"), retention_days: z.number().int().min(1).max(180).default(180) },
       repeatGuard: true,
     },
     async ({ seed_segment_id, name, countries, type, retention_days }) => {
       const seed = await client.getEntity("segment", seed_segment_id);
-      const obj = buildLookalike({ adAccountId: account(), seedSegmentId: seed_segment_id, name, countries, type, retentionDays: retention_days });
+      const obj = buildLookalike({ adAccountId: account(), seedSegmentId: seed_segment_id, name, countries: countries ?? defaultCountries(), type, retentionDays: retention_days });
       return {
         targets: [{ entity: "segment", obj: seed }],
         state: { seed: { id: seed.id, name: seed.name, source_type: seed.source_type } },
@@ -872,7 +876,7 @@ export function registerTools(server, client, env = process.env) {
         "Influencer flow for up to 10 ad codes into one ad squad: for each, claim, wait for media, create creative, create a PAUSED ad. Expired codes are skipped and reported, others continue. Stops if a claimed code ends up incomplete. Claiming is one-way. Previews (format check only) unless confirm=true.",
       shape: {
         adsquad_id: id(),
-        items: z.array(z.object({ ad_code: z.string(), name: z.string().describe("e.g. 'Paid - handle - SKU'"), ref: z.string().optional().describe("Your own reference, e.g. the Airtable request id") }).strict()).min(1).max(10),
+        items: z.array(z.object({ ad_code: z.string(), name: z.string().describe("e.g. 'Paid - handle - SKU'"), ref: z.string().optional().describe("Your own reference, e.g. a request id from your own tracker") }).strict()).min(1).max(10),
         headline: z.string(),
         url: z.string(),
         call_to_action: z.string().default("SHOP_NOW"),
@@ -960,18 +964,18 @@ export function registerTools(server, client, env = process.env) {
     "snap_upload_customer_list",
     {
       description:
-        "Create a customer-list audience from a local CSV of emails or phone numbers. Values are normalised and SHA-256 hashed on this machine; only hashes are uploaded and no raw value is ever shown or logged. Previews (counts only) unless confirm=true. Phone numbers without a country code get default_country_code (966).",
+        "Create a customer-list audience from a local CSV of emails or phone numbers. Values are normalised and SHA-256 hashed on this machine; only hashes are uploaded and no raw value is ever shown or logged. Previews (counts only) unless confirm=true. Local phone numbers get default_country_code (or SNAP_DEFAULT_PHONE_CODE); without either they are counted as invalid.",
       shape: {
         file_path: z.string().describe("Absolute path to a .csv with a header row"),
         kind: z.enum(["email", "phone"]),
         name: z.string().min(3).describe("Audience name"),
         column: z.string().optional().describe("Header of the column to use; found automatically when omitted"),
-        default_country_code: z.string().default("966"),
+        default_country_code: z.string().regex(/^[1-9]\d{0,3}$/, "digits only, e.g. 1, 44 or 966").optional().describe("Country code (digits, no +) for local numbers; defaults to SNAP_DEFAULT_PHONE_CODE. Without one, local numbers are counted as invalid."),
       },
       repeatGuard: true,
     },
     async ({ file_path, kind, name, column, default_country_code }) => {
-      const data = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code });
+      const data = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code ?? policy.defaultPhoneCode ?? undefined });
       const summary = { column_used: data.column, rows: data.rows, valid_unique: data.valid, invalid_skipped: data.invalid, duplicates_removed: data.duplicates };
       if (!data.valid) throw new Error(`No valid ${kind} values found. ${JSON.stringify(summary)}`);
       const adAccountId = account();

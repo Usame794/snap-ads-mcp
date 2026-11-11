@@ -154,7 +154,7 @@ export function planSchedule(current, { startTime, endTime }, now = new Date()) 
   const patch = {};
   const start = startTime ? new Date(startTime) : null;
   const end = endTime ? new Date(endTime) : null;
-  if ((start && isNaN(start)) || (end && isNaN(end))) throw new Error("Times must be ISO date-times, e.g. 2026-11-01T00:00:00+03:00");
+  if ((start && isNaN(start)) || (end && isNaN(end))) throw new Error("Times must be ISO date-times, e.g. 2026-11-01T00:00:00+00:00");
   if (start) patch.start_time = start.toISOString();
   if (end) {
     if (end <= now) throw new Error("end_time must be in the future");

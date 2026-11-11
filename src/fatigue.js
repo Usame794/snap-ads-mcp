@@ -4,7 +4,7 @@ import { compareReport } from "./audit.js";
 // Move an ISO date-time by deltaMs and keep its UTC offset (so day boundaries stay at local midnight).
 export function shiftIso(iso, deltaMs) {
   const m = String(iso).match(/(Z|[+-]\d{2}:?\d{2})$/);
-  if (!m) throw new Error("Times need an offset, e.g. 2026-10-27T00:00:00+03:00");
+  if (!m) throw new Error("Times need an offset, e.g. 2026-10-27T00:00:00+00:00");
   const off = m[1];
   const mins = off === "Z" ? 0 : (off[0] === "-" ? -1 : 1) * (parseInt(off.slice(1, 3), 10) * 60 + parseInt(off.slice(-2), 10));
   const local = new Date(new Date(iso).getTime() + deltaMs + mins * 60_000);
