@@ -36,28 +36,46 @@ export async function healthCheck(client, { adAccountId, start_time, end_time, t
   const th = { maxFrequency: 5, minSwipeRatePct: 0.15, minSpend: 100, minRoas: 3, ...thresholds };
   const campaigns = (await pages(client, `/adaccounts/${adAccountId}/campaigns`, "campaigns", { maxPages: 15 })).filter((c) => c.status === "ACTIVE");
   const findings = [];
+  const statsFailed = [];
   let squadsChecked = 0;
   let idle = 0;
+  let unknown = 0;
   for (const campaign of campaigns) {
     const squads = (await client.listChildren("campaign", campaign.id, "adsquad")).filter((s) => s.status === "ACTIVE");
     if (!squads.length) continue;
     let rows = {};
+    let haveStats = true;
     try {
       const rep = await breakdownReport(client, { entity: "campaign", id: campaign.id, breakdown: "adsquad", start_time, end_time });
       rows = Object.fromEntries(rep.rows.map((r) => [r.id, r]));
-    } catch {
-      // stats can fail for odd campaigns; the structural checks still run
+      if (rep.incomplete) statsFailed.push({ campaign_id: campaign.id, campaign: campaign.name, error: "stats were cut off (too many pages); figures are a lower bound" });
+    } catch (e) {
+      // Stats can fail for odd campaigns. The structural checks still run, but the failure is reported: a squad whose
+      // numbers could not be read is "unknown", never "no spend" or "no issues".
+      haveStats = false;
+      statsFailed.push({ campaign_id: campaign.id, campaign: campaign.name, error: String(e.message).slice(0, 200) });
     }
     for (const squad of squads) {
       squadsChecked += 1;
-      if (!(rows[squad.id]?.spend > 0)) idle += 1;
+      if (!haveStats) unknown += 1;
+      else if (!(rows[squad.id]?.spend > 0)) idle += 1;
       const issues = judgeSquad({ squad, campaign, row: rows[squad.id], thresholds: th });
       if (issues.length) findings.push({ campaign: campaign.name, campaign_id: campaign.id, adsquad: squad.name, adsquad_id: squad.id, daily_budget: (squad.daily_budget_micro ?? 0) / 1e6, issues });
     }
   }
   const byCode = {};
   for (const f of findings) for (const i of f.issues) byCode[i.code] = (byCode[i.code] ?? 0) + 1;
-  return { window: { start_time, end_time }, thresholds: th, active_campaigns: campaigns.length, active_squads_checked: squadsChecked, active_squads_with_no_spend_in_window: idle, squads_with_issues: findings.length, issue_counts: byCode, findings };
+  return {
+    window: { start_time, end_time },
+    thresholds: th,
+    active_campaigns: campaigns.length,
+    active_squads_checked: squadsChecked,
+    active_squads_with_no_spend_in_window: idle,
+    ...(statsFailed.length ? { stats_unavailable: { campaigns: statsFailed, squads_not_judged_on_performance: unknown, warning: "Performance issues for these campaigns are UNKNOWN, not absent." } } : {}),
+    squads_with_issues: findings.length,
+    issue_counts: byCode,
+    findings,
+  };
 }
 
 // Ads that are not approved, with Snap's reasons, limited to ads whose squad is ACTIVE when onlyActive is set.

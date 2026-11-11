@@ -24,15 +24,25 @@ export function redact(value, depth = 0) {
   return String(value);
 }
 
+// Everything this process recorded, per log file, kept in memory as well. Safety decisions read the file AND this copy,
+// so deleting or truncating the file while the server runs does not reset the 24-hour limits.
+const SESSION = new Map();
+export function remember(file, record) {
+  if (!SESSION.has(file)) SESSION.set(file, []);
+  SESSION.get(file).push(record);
+}
+const keyOf = (e) => `${e.at}|${e.event_id ?? e.id ?? ""}|${e.phase ?? ""}|${e.change ?? ""}`;
+
 function append(file, record) {
+  remember(file, record);
   appendFileSync(file, JSON.stringify(record) + "\n", { mode: 0o600 });
 }
 
 // Throws when the record cannot be written: the caller must then NOT perform the operation.
-export function auditIntent(file, { tool, account, targets = [], params, preview }) {
+export function auditIntent(file, { tool, account, targets = [], params, preview, addedDailyBudget = 0 }) {
   const event_id = randomUUID();
   try {
-    append(file, { at: new Date().toISOString(), kind: "audit", phase: "intent", event_id, tool, account: account ?? null, target_ids: targets, params: redact(params), expected: redact(preview) });
+    append(file, { at: new Date().toISOString(), kind: "audit", phase: "intent", event_id, tool, account: account ?? null, target_ids: targets, ...(addedDailyBudget > 0 ? { added_daily_budget: addedDailyBudget } : {}), params: redact(params), expected: redact(preview) });
   } catch (e) {
     throw new Error(`Audit log is not writable (${e.code ?? e.message}); refusing to run ${tool}. Nothing was sent to Snap.`);
   }
@@ -68,14 +78,36 @@ export function readLogStrict(file) {
   });
 }
 
+// The log as safety decisions see it: the file plus anything this process recorded that is no longer in the file, oldest first.
+export function safetyEntries(file) {
+  const fromFile = readLogStrict(file);
+  const seen = new Set(fromFile.map(keyOf));
+  const missing = (SESSION.get(file) ?? []).filter((e) => !seen.has(keyOf(e)));
+  if (!missing.length) return fromFile;
+  return [...fromFile, ...missing].sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
+}
+
+const inWindow = (e, now, windowMs) => {
+  const at = Date.parse(e.at);
+  return Number.isFinite(at) && at >= now - windowMs && at <= now + 60_000;
+};
+
 // Value a field had at the start of the last 24 hours, taken from the earliest logged change of that entity in the window.
 // Returns null when this server logged no change of that field in the window. Values are in micro-currency as logged.
 export function windowStartMicro(file, id, field, { now = Date.now(), windowMs = 86_400_000 } = {}) {
-  const since = now - windowMs;
-  for (const e of readLogStrict(file)) {
+  for (const e of safetyEntries(file)) {
     if (e.id !== id || !e.before || typeof e.before[field] !== "number") continue;
-    const at = Date.parse(e.at);
-    if (Number.isFinite(at) && at >= since && at <= now + 60_000) return e.before[field];
+    if (inWindow(e, now, windowMs)) return e.before[field];
   }
   return null;
+}
+
+// Daily budget this server already added to the account in the last 24 hours (budgets it started plus budget increases),
+// summed from the intent records. An intent counts even if its execution failed: part of it may have been applied.
+export function addedDailyBudgetInWindow(file, { now = Date.now(), windowMs = 86_400_000 } = {}) {
+  let total = 0;
+  for (const e of safetyEntries(file)) {
+    if (e.kind === "audit" && e.phase === "intent" && typeof e.added_daily_budget === "number" && e.added_daily_budget > 0 && inWindow(e, now, windowMs)) total += e.added_daily_budget;
+  }
+  return Math.round(total * 100) / 100;
 }

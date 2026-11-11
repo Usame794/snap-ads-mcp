@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { randomInt } from "node:crypto";
 import { z } from "zod";
 import { SnapClient } from "./snap.js";
 import { executeChange, LOG_FILE, planBid, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, prepareChange, previewOf, readLog, undoableEntries } from "./changes.js";
@@ -8,7 +9,7 @@ import { createWithAutoStrip, planCloneCreative } from "./creative-tools.js";
 import { buildCustomerSegment, readIdentifiers, uploadCustomerList } from "./customer-list.js";
 import { asyncReportStatus, downloadAsyncReport, startAsyncReport } from "./async-report.js";
 import { executeDelete, planDelete } from "./delete.js";
-import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS } from "./report.js";
+import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS, SWIPE_WINDOWS, VIEW_WINDOWS } from "./report.js";
 import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.js";
 import { fatigueReport } from "./fatigue.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
@@ -17,11 +18,11 @@ import { executeCopy, executeCopySquad, loadSource, planCopy, planCopySquad } fr
 import { executeCloneAd, loadTargets, planCloneAd } from "./clone-ad.js";
 import { executeBulkStatus, loadBulkItems, planBulkStatus } from "./bulk.js";
 import { buildAd, buildCreative, claimAdCode, getMedia, runInfluencerFlow, validateAdCode } from "./influencer.js";
-import { loadPolicy } from "./policy.js";
+import { describePolicy, loadPolicy } from "./policy.js";
 import { ApprovalStore, digest } from "./approval.js";
-import { auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
+import { addedDailyBudgetInWindow, auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
 import { Ownership } from "./ownership.js";
-import { activationImpact } from "./activation.js";
+import { activationImpact, scheduleOpensDelivery } from "./activation.js";
 
 const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (e) => ({ isError: true, content: [{ type: "text", text: `Error: ${e.message}` }] });
@@ -80,20 +81,46 @@ export function registerTools(server, client, env = process.env) {
     });
   };
 
-  // Optional trusted human signal: ask the person through the MCP client itself (elicitation). Fails closed.
-  async function humanApproval(tool, preview) {
+  // Optional human signal: the server asks the person directly through the MCP client (elicitation). The question and the
+  // answer travel between server and client UI; they are not part of any tool result, so the model neither sees the
+  // confirmation code nor can answer for the user. Fails closed whenever the client cannot ask.
+  // (A client can still be configured to answer elicitations automatically, e.g. with a hook. That is outside this server.)
+  async function humanApproval(tool, p, targetIds, added) {
     if (policy.humanApproval !== "elicit") return;
+    const sensitive = added > 0 || tool === "snap_delete" || tool === "snap_undo";
+    const code = sensitive ? String(randomInt(1000, 10000)) : null;
+    const facts = [
+      `${tool} on ad account ${cfg.account ?? "?"}`,
+      targetIds.length ? `Targets (${targetIds.length}): ${targetIds.slice(0, 5).join(", ")}${targetIds.length > 5 ? ", ..." : ""}` : null,
+      added > 0 ? `THIS ADDS ${added} PER DAY of budget (account currency).` : null,
+      typeof p.preview?.change === "string" ? `Change: ${p.preview.change}` : null,
+      code ? `To approve, tick the box AND type this code: ${code}` : "To approve, tick the box.",
+    ].filter(Boolean);
+    const properties = { approve: { type: "boolean", title: "Approve this change", description: "Tick to let this exact change run." } };
+    if (code) properties.confirmation_code = { type: "string", title: "Confirmation code", description: "The 4-digit code shown in the message." };
     let res;
     try {
-      res = await server.server.elicitInput({
-        message: `Approve ${tool} on ad account ${cfg.account ?? "?"}?\n${JSON.stringify(redact(preview), null, 1).slice(0, 1800)}`,
-        requestedSchema: { type: "object", properties: { approve: { type: "boolean", title: "Approve this change", description: "Tick to let this exact change run." } }, required: ["approve"] },
-      });
+      res = await server.server.elicitInput(
+        { message: `${facts.join("\n")}\n\nDetails:\n${JSON.stringify(redact(p.preview), null, 1).slice(0, 1400)}`, requestedSchema: { type: "object", properties, required: ["approve"] } },
+        { timeout: 600_000 },
+      );
     } catch (e) {
       throw new Error(`A human approval is required (SNAP_HUMAN_APPROVAL=elicit) but this MCP client could not ask for one (${e.message}). Nothing was sent.`);
     }
     if (res?.action !== "accept" || res.content?.approve !== true) throw new Error("The user did not approve this change. Nothing was sent.");
+    if (code && String(res.content?.confirmation_code ?? "").trim() !== code) throw new Error("The confirmation code did not match. Nothing was sent.");
   }
+
+  // Everything this server may add to the account's daily spend in 24 hours, across all tools and calls.
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const spendLedger = (added) => {
+    if (!(added > 0)) return null;
+    const used = addedDailyBudgetInWindow(logFile);
+    if (used + added > policy.maxAddedDailyBudget24h + 1e-9) {
+      throw new Error(`Refusing: this would add ${added} per day of budget, and ${used} per day was already added through this server in the last 24 hours (limit ${policy.maxAddedDailyBudget24h}, SNAP_MAX_ADDED_DAILY_BUDGET_24H). Nothing was sent. Only the account owner can raise that limit, in .env, followed by a restart.`);
+    }
+    return { adds_daily_budget: added, already_added_last_24h: used, limit_per_24h: policy.maxAddedDailyBudget24h };
+  };
 
   const READ = { readOnlyHint: true, openWorldHint: true };
   const read = (name, { description, shape = {}, annotations = READ }, fn) =>
@@ -132,6 +159,8 @@ export function registerTools(server, client, env = process.env) {
           const p = await prepare(params);
           for (const t of p.targets ?? []) await ownership.assert(t.entity, t.obj, account());
           const targetIds = p.targetIds ?? (p.targets ?? []).map((t) => t.obj.id);
+          const added = round2(p.addedDailyBudget ?? 0);
+          const ledger = p.blocked ? null : spendLedger(added);
           const requestDigest = digest({ tool: name, account: cfg.account ?? null, params: bind(params) });
           const binding = digest({ requestDigest, state: p.state ?? null });
           if (!confirm) {
@@ -141,6 +170,7 @@ export function registerTools(server, client, env = process.env) {
             return text({
               ...p.preview,
               ...(repeat ? { duplicate_warning: `An identical request was executed ${repeat.seconds_ago}s ago and will be refused if confirmed: ${JSON.stringify(repeat.summary)}` } : {}),
+              ...(ledger ? { spend_impact: ledger } : {}),
               ...(policy.readOnly ? { read_only: "SNAP_READ_ONLY is on: this preview cannot be applied." } : {}),
               ad_account: cfg.account ?? null,
               approval_token: issued.token,
@@ -153,9 +183,11 @@ export function registerTools(server, client, env = process.env) {
             const repeat = approvals.recentRepeat(requestDigest);
             if (repeat) throw new Error(`An identical ${name} request was already executed ${repeat.seconds_ago}s ago (${JSON.stringify(repeat.summary)}). Not repeating it. If a second one is really wanted, give it a different name or wait ${policy.repeatWindowSeconds}s.`);
           }
-          await humanApproval(name, p.preview);
+          await humanApproval(name, p, targetIds, added);
           const event = { tool: name, account: cfg.account ?? null, targets: targetIds };
-          const event_id = auditIntent(logFile, { ...event, params, preview: p.preview });
+          // Checked again and recorded in one synchronous step, so two calls running at once cannot both slip under the limit.
+          spendLedger(added);
+          const event_id = auditIntent(logFile, { ...event, params, preview: p.preview, addedDailyBudget: added });
           let result;
           try {
             result = await p.execute();
@@ -173,13 +205,24 @@ export function registerTools(server, client, env = process.env) {
     );
 
   // One planned edit of one existing item.
-  const change = async (entity, entityId, plan, { activation = false, logExtra, extraPreview } = {}) => {
+  // Whatever the tool is called, a change that can start or raise spending is measured here: enabling, a schedule edit that
+  // lets an ACTIVE item deliver sooner, and a budget increase.
+  const spendOf = async (entity, current, patch) => {
+    const enabling = patch.status === "ACTIVE" && current.status !== "ACTIVE";
+    const opening = !enabling && ("start_time" in patch || "end_time" in patch) && scheduleOpensDelivery(current, patch);
+    const impact = enabling || opening ? await activationImpact(client, entity, [{ ...current, ...patch }], policy) : undefined;
+    const raise = typeof patch.daily_budget_micro === "number" && patch.daily_budget_micro > (current.daily_budget_micro ?? 0) ? (patch.daily_budget_micro - (current.daily_budget_micro ?? 0)) / 1e6 : 0;
+    return { impact, opening, added: (impact?.daily_budget_that_starts_delivering ?? 0) + raise };
+  };
+
+  const change = async (entity, entityId, plan, { logExtra, extraPreview } = {}) => {
     const prepared = await prepareChange({ client, entity, id: entityId, plan });
-    const impact = activation && prepared.patch.status === "ACTIVE" ? await activationImpact(client, entity, [prepared.current], policy) : undefined;
+    const { impact, opening, added } = await spendOf(entity, prepared.current, prepared.patch);
     return {
       targets: [{ entity, obj: prepared.current }],
       state: { current: prepared.current, impact: impact ?? null },
-      preview: { ...previewOf(prepared), ...(impact ? { activation: impact } : {}), ...(extraPreview ?? {}) },
+      addedDailyBudget: added,
+      preview: { ...previewOf(prepared), ...(impact ? { activation: { ...(opening ? { reason: "This schedule change lets an ACTIVE item deliver sooner, so it is checked like enabling it." } : {}), ...impact } } : {}), ...(extraPreview ?? {}) },
       execute: async () => ({ ...(await executeChange({ client, prepared, logFile, logExtra })), ...(extraPreview ?? {}) }),
     };
   };
@@ -191,9 +234,15 @@ export function registerTools(server, client, env = process.env) {
 
   // ---------------------------------------------------------------- read tools
 
-  read("snap_ping", { description: "Check the Snap credentials work and show who is authorized." }, async () => {
+  // Optional: pin the attribution windows of a report. Left out, Snap uses the account's defaults (stated in the output).
+  const attributionShape = {
+    swipe_up_attribution_window: z.enum(SWIPE_WINDOWS).optional().describe("Pin the swipe attribution window; default is the account's setting"),
+    view_attribution_window: z.enum(VIEW_WINDOWS).optional().describe("Pin the view attribution window; default is the account's setting"),
+  };
+
+  read("snap_ping", { description: "Check the Snap credentials work, show who is authorized, and show the safety limits this server is running with." }, async () => {
     const me = await client.request("GET", "/me");
-    return { ok: true, me: me.me ?? me };
+    return { ok: true, me: me.me ?? me, ad_account: cfg.account ?? null, safety_limits: describePolicy(policy) };
   });
 
   read(
@@ -269,7 +318,7 @@ export function registerTools(server, client, env = process.env) {
     "snap_report",
     {
       description: "Performance table for a campaign or ad squad broken down by ad squad or ad: spend, purchases, ROAS, CPA, swipe rate and frequency (read-only). Times must fall on the hour, with offset.",
-      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]), start_time: z.string().describe("e.g. 2026-10-19T00:00:00+03:00"), end_time: z.string() },
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), breakdown: z.enum(["adsquad", "ad"]), start_time: z.string().describe("e.g. 2026-10-19T00:00:00+03:00"), end_time: z.string(), ...attributionShape },
     },
     (args) => breakdownReport(client, args),
   );
@@ -318,7 +367,7 @@ export function registerTools(server, client, env = process.env) {
     "snap_report_daily",
     {
       description: "Day-by-day performance (spend, purchases, ROAS, CPA, swipe rate) for a campaign, ad squad or ad, up to 31 days (read-only). Day boundaries must be local midnight with offset.",
-      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+03:00"), end_time: z.string() },
+      shape: { entity: z.enum(["campaign", "adsquad", "ad"]), id: id(), start_time: z.string().describe("e.g. 2026-10-01T00:00:00+03:00"), end_time: z.string(), ...attributionShape },
     },
     (args) => dailyReport(client, args),
   );
@@ -415,7 +464,7 @@ export function registerTools(server, client, env = process.env) {
       shape: { entity: entityEnum, id: id(), status: z.enum(["ACTIVE", "PAUSED"]) },
       destructive: true,
     },
-    ({ entity, id: entityId, status }) => change(entity, entityId, (cur) => planStatus(cur, status), { activation: true }),
+    ({ entity, id: entityId, status }) => change(entity, entityId, (cur) => planStatus(cur, status)),
   );
 
   write(
@@ -436,6 +485,7 @@ export function registerTools(server, client, env = process.env) {
       return {
         targets: items.map(({ obj }) => ({ entity, obj })),
         state: { items: items.map(({ obj, parent }) => ({ obj, parent_status: parent?.status ?? null })), impact: impact ?? null },
+        addedDailyBudget: impact?.daily_budget_that_starts_delivering ?? 0,
         blocked: plan.toChange.length ? undefined : "Nothing to change: every item is already in that state.",
         preview: { applied: false, dry_run: true, preview: summary, note: "Nothing was changed. Re-run with confirm=true to apply." },
         execute: async () => ({ applied: true, changed: await executeBulkStatus({ client, entity, plan, status, logFile }), skipped: plan.skipped, warnings: plan.warnings }),
@@ -740,7 +790,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_schedule",
     {
-      description: "Set start_time and/or end_time (ISO with offset) on a campaign or ad squad. end_time must be in the future and after the start. Previews unless confirm=true.",
+      description: "Set start_time and/or end_time (ISO with offset) on a campaign or ad squad. end_time must be in the future and after the start. A change that lets an ACTIVE item deliver sooner (an earlier start, or reviving an ended item) is checked and limited like enabling it. Previews unless confirm=true.",
       shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), start_time: z.string().optional(), end_time: z.string().optional() },
       destructive: true,
     },
@@ -773,11 +823,16 @@ export function registerTools(server, client, env = process.env) {
   const idsField = z.array(id()).min(1).max(20);
   const bulk = async (entity, ids, buildPlan) => {
     const prepared = await prepareBulkEdit({ client, entity, ids, buildPlan });
+    // Budget increases across all items, plus anything a schedule edit would let start, count as one amount.
+    const raise = prepared.will.reduce((n, i) => n + (typeof i.patch?.daily_budget_micro === "number" && i.patch.daily_budget_micro > (i.current.daily_budget_micro ?? 0) ? (i.patch.daily_budget_micro - (i.current.daily_budget_micro ?? 0)) / 1e6 : 0), 0);
+    const opening = prepared.will.filter((i) => i.patch && ("start_time" in i.patch || "end_time" in i.patch) && scheduleOpensDelivery(i.current, i.patch));
+    const impact = opening.length ? await activationImpact(client, entity, opening.map((i) => ({ ...i.current, ...i.patch })), policy) : undefined;
     return {
       targets: prepared.items.map((i) => ({ entity, obj: i.current })),
-      state: { items: prepared.items.map((i) => i.current) },
+      state: { items: prepared.items.map((i) => i.current), impact: impact ?? null },
+      addedDailyBudget: raise + (impact?.daily_budget_that_starts_delivering ?? 0),
       blocked: prepared.will.length ? undefined : `Nothing to change. ${JSON.stringify(prepared.skipped)}`,
-      preview: prepared.preview,
+      preview: { ...prepared.preview, ...(impact ? { activation: { reason: "These schedule changes let ACTIVE items deliver sooner, so they are checked like enabling them.", ...impact } } : {}) },
       execute: () => executeBulkEdit({ client, entity, prepared, buildPlan, logFile }),
     };
   };
@@ -800,7 +855,7 @@ export function registerTools(server, client, env = process.env) {
 
   write(
     "snap_bulk_set_schedule",
-    { description: "Set start/end time on up to 20 campaigns or ad squads. Previews unless confirm=true.", shape: { entity: z.enum(["campaign", "adsquad"]), ids: idsField, start_time: z.string().optional(), end_time: z.string().optional() }, destructive: true },
+    { description: "Set start/end time on up to 20 campaigns or ad squads. Changes that let ACTIVE items deliver sooner are checked and limited like enabling them. Previews unless confirm=true.", shape: { entity: z.enum(["campaign", "adsquad"]), ids: idsField, start_time: z.string().optional(), end_time: z.string().optional() }, destructive: true },
     ({ entity, ids, start_time, end_time }) => bulk(entity, ids, plans.schedule({ startTime: start_time, endTime: end_time })),
   );
 
@@ -876,7 +931,7 @@ export function registerTools(server, client, env = process.env) {
       if (!entry) throw new Error("No undoable change found at that position");
       if (!["campaign", "adsquad", "ad"].includes(entry.entity)) throw new Error("That log entry cannot be undone");
       const reverting = { at: entry.at, name: entry.name, change: entry.change };
-      const p = await change(entry.entity, entry.id, (cur) => planUndo(entry, cur, { force, env: policy, history }), { activation: true, logExtra: { undoes: entry.at }, extraPreview: { reverting } });
+      const p = await change(entry.entity, entry.id, (cur) => planUndo(entry, cur, { force, env: policy, history }), { logExtra: { undoes: entry.at }, extraPreview: { reverting } });
       // The approval is tied to this exact log entry, so a newer change cannot shift which one gets undone.
       return { ...p, state: { ...p.state, entry_at: entry.at } };
     },

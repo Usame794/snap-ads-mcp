@@ -12,7 +12,7 @@ export async function prepareBulkEdit({ client, entity, ids, buildPlan }) {
     const cur = await client.getEntity(entity, id);
     try {
       const plan = buildPlan(cur);
-      items.push({ id, name: cur.name, change: plan.summary, ok: true, current: cur });
+      items.push({ id, name: cur.name, change: plan.summary, ok: true, current: cur, patch: plan.patch });
     } catch (e) {
       items.push({ id, name: cur.name, skip: e.message, ok: false, current: cur });
     }

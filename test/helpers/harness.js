@@ -131,5 +131,5 @@ export async function setup({ world = sampleWorld(), env = {}, elicit } = {}) {
     return { preview, applied };
   };
   const log = () => (existsSync(logFile) ? readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
-  return { ...snap, client, raw, call, twoStep, log, logFile, dir, asked, close: () => client.close() };
+  return { ...snap, client, raw, call, twoStep, log, logFile, dir, asked, env: fullEnv, close: () => client.close() };
 }

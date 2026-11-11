@@ -38,25 +38,29 @@ function readChoice(env, key, fallback, choices, errors) {
   return choices[text];
 }
 
+// Policies made by loadPolicy. Only these are trusted as "already validated"; no property of an object can fake it.
+const POLICIES = new WeakSet();
 const BOOL = { 1: true, true: true, yes: true, on: true, 0: false, false: false, no: false, off: false };
 const HARD_MAX = 1_000_000_000; // sanity bound for any amount, in account currency
 
 // Parses the safety settings. Throws one error listing every problem.
 export function loadPolicy(env = process.env) {
-  if (env && env.__policy === true) return env;
+  if (env && typeof env === "object" && POLICIES.has(env)) return env;
   const errors = [];
   const minDailyBudget = readNumber(env, "SNAP_MIN_DAILY_BUDGET", 5, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
   const maxDailyBudget = readNumber(env, "SNAP_MAX_DAILY_BUDGET", 1000, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
   const maxBid = readNumber(env, "SNAP_MAX_BID", 50, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
+  const maxActivationDailyBudget = readNumber(env, "SNAP_MAX_ACTIVATION_DAILY_BUDGET", maxDailyBudget * 5, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors);
   const policy = {
-    __policy: true,
     minDailyBudget,
     maxDailyBudget,
     maxBid,
     maxIncreasePct: readNumber(env, "SNAP_MAX_BUDGET_INCREASE_PCT", 100, { min: 0, max: 1000 }, errors),
     maxBidIncreasePct: readNumber(env, "SNAP_MAX_BID_INCREASE_PCT", 50, { min: 0, max: 1000 }, errors),
     maxLifetimeBudget: readNumber(env, "SNAP_MAX_LIFETIME_BUDGET", maxDailyBudget * 30, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors),
-    maxActivationDailyBudget: readNumber(env, "SNAP_MAX_ACTIVATION_DAILY_BUDGET", maxDailyBudget * 5, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors),
+    maxActivationDailyBudget,
+    // Everything this server may add to the account's daily spend in any 24 hours: budgets it starts plus budget increases.
+    maxAddedDailyBudget24h: readNumber(env, "SNAP_MAX_ADDED_DAILY_BUDGET_24H", maxActivationDailyBudget * 2, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors),
     approvalTtlSeconds: readNumber(env, "SNAP_APPROVAL_TTL_SECONDS", 600, { min: 30, max: 3600, integer: true }, errors),
     repeatWindowSeconds: readNumber(env, "SNAP_REPEAT_WINDOW_SECONDS", 600, { min: 0, max: 86400, integer: true }, errors),
     httpTimeoutMs: readNumber(env, "SNAP_HTTP_TIMEOUT_MS", 60000, { min: 1000, max: 600000, integer: true }, errors),
@@ -71,13 +75,14 @@ export function loadPolicy(env = process.env) {
   }
   if (!errors.length && maxDailyBudget < minDailyBudget) errors.push("SNAP_MAX_DAILY_BUDGET must not be below SNAP_MIN_DAILY_BUDGET.");
   if (errors.length) throw new Error(`Unsafe configuration, refusing to continue:\n- ${errors.join("\n- ")}`);
-  return Object.freeze(policy);
+  Object.freeze(policy);
+  POLICIES.add(policy);
+  return policy;
 }
 
 // Public, non-secret view of the limits (shown in previews and errors).
 export function describePolicy(policy) {
-  const { __policy, ...rest } = policy;
-  return rest;
+  return { ...policy };
 }
 
 // A money amount in account currency: a finite, positive number with at most micro precision.

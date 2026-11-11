@@ -248,11 +248,13 @@ test("human approval through the client (SNAP_HUMAN_APPROVAL=elicit) fails close
   assert.match((await unticked.twoStep("snap_set_daily_budget", args)).applied.error, /did not approve/);
   await unticked.close();
 
-  const yes = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => ({ action: "accept", content: { approve: true } }) });
+  // a budget increase is money-sensitive: the person must also type the code the server shows them
+  const typed = (params) => ({ action: "accept", content: { approve: true, confirmation_code: params.message.match(/type this code: (\d{4})/)?.[1] } });
+  const yes = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async (params) => typed(params) });
   const r = await yes.twoStep("snap_set_daily_budget", args);
   assert.equal(r.applied.data.applied, true);
   assert.equal(yes.asked.length, 1);
-  assert.match(yes.asked[0], /snap_set_daily_budget[\s\S]*10 -> 15/);
+  assert.match(yes.asked[0], /snap_set_daily_budget on ad account acc-1[\s\S]*THIS ADDS 5 PER DAY[\s\S]*10 -> 15/);
   assert.equal((await yes.call("snap_list_campaigns", {})).data.length, 2, "reads never ask");
   assert.equal(yes.asked.length, 1);
   await yes.close();
@@ -405,7 +407,8 @@ test("a failed execution is recorded as failed, and an unverifiable one is repor
 
 test("read-only tools still work and are unaffected by the write gate", async () => {
   const t = await setup();
-  assert.deepEqual((await t.call("snap_ping", {})).data, { ok: true, me: { display_name: "Tester" } });
+  const ping = (await t.call("snap_ping", {})).data;
+  assert.deepEqual([ping.ok, ping.me.display_name, ping.ad_account, ping.safety_limits.maxDailyBudget, ping.safety_limits.maxAddedDailyBudget24h], [true, "Tester", "acc-1", 1000, 10000]);
   assert.deepEqual((await t.call("snap_list_campaigns", {})).data.map((c) => c.id), ["c1", "c2"]);
   assert.deepEqual((await t.call("snap_list_campaigns", { status: "PAUSED" })).data.map((c) => c.id), ["c2"]);
   assert.deepEqual((await t.call("snap_list_adsquads", { campaign_id: "c2" })).data.map((s) => [s.id, s.daily_budget]), [["s3", 30], ["s4", 50], ["s5", 70]]);

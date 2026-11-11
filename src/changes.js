@@ -3,6 +3,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "./env.js";
 import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
+import { remember } from "./audit-log.js";
 
 export const LOG_FILE = join(ROOT, "changes.log.jsonl");
 
@@ -165,7 +166,9 @@ export function planSchedule(current, { startTime, endTime }, now = new Date()) 
 }
 
 export function logChange(entry, file = LOG_FILE) {
-  appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
+  const record = { at: new Date().toISOString(), ...entry };
+  remember(file, record); // kept in memory too, so the 24-hour limits survive a lost or failed log write
+  appendFileSync(file, JSON.stringify(record) + "\n", { mode: 0o600 });
 }
 
 export function readLog(limit = 20, file = LOG_FILE) {
@@ -240,8 +243,19 @@ export function undoableEntries(file = LOG_FILE) {
   return log.filter((e) => e.before && e.patch && e.id && e.entity && e.verified !== false && !e.undoes && !undone.has(e.at) && !String(e.change).startsWith("undo:"));
 }
 
+// The only fields this server ever edits. An undo restores nothing else, whatever a log entry claims.
+const UNDOABLE_FIELDS = ["status", "daily_budget_micro", "bid_micro", "targeting", "start_time", "end_time", "name"];
+
 export function planUndo(entry, current, { force = false, env = process.env, history } = {}) {
-  const keys = Object.keys(entry.patch);
+  const keys = Object.keys(entry.patch ?? {});
+  if (!keys.length || !entry.before || typeof entry.before !== "object") throw new Error("That log entry has nothing that can be undone");
+  const foreign = keys.filter((k) => !UNDOABLE_FIELDS.includes(k));
+  if (foreign.length) throw new Error(`That log entry touches ${foreign.join(", ")}, which this server never edits; refusing to restore it.`);
+  if (keys.includes("status") && !["ACTIVE", "PAUSED"].includes(entry.before.status)) throw new Error("That log entry would restore a status other than ACTIVE or PAUSED; refusing.");
+  for (const k of ["daily_budget_micro", "bid_micro"]) {
+    if (keys.includes(k) && entry.before[k] != null && !(typeof entry.before[k] === "number" && Number.isFinite(entry.before[k]) && entry.before[k] > 0)) throw new Error(`That log entry has no valid earlier ${k}; refusing.`);
+  }
+  if (keys.includes("name") && entry.before.name != null && !(typeof entry.before.name === "string" && entry.before.name.trim().length >= 3)) throw new Error("That log entry has no valid earlier name; refusing.");
   if (!force) {
     const moved = keys.filter((k) => {
       // Best check: the field must still equal what Snap returned right after this edit.

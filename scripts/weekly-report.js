@@ -24,7 +24,8 @@ async function byCampaign(w) {
   return rows.map((r) => ({ id: r.id, ...summarizeRow(null, r.id, r.stats) }));
 }
 const sum = (rows, k) => rows.reduce((n, r) => n + (r[k] ?? 0), 0);
-const roasOf = (rows) => { const s = sum(rows, "spend"); const v = rows.reduce((n, r) => n + (r.roas ?? 0) * r.spend, 0); return s ? Math.round((v / s) * 100) / 100 : null; };
+// ROAS of the whole account = total purchase value / total spend (not an average of per-campaign ROAS).
+const roasOf = (rows) => { const s = sum(rows, "spend"); const v = sum(rows, "purchase_value"); return s ? Math.round((v / s) * 100) / 100 : null; };
 const money = (n) => `$${Math.round(n).toLocaleString("en-US")}`;
 const arrow = (a, b) => (b ? `${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%` : "n/a");
 
@@ -52,7 +53,7 @@ const L = [];
 L.push(`# Snapchat weekly report`, `Account: ${process.env.SNAP_AD_ACCOUNT_ID} | ${week.start_time.slice(0, 10)} to ${shiftIso(end, -86_400_000).slice(0, 10)} (vs the 7 days before)`, "");
 L.push("## Totals", `- Spend: ${money(sum(now, "spend"))} (${arrow(sum(now, "spend"), sum(before, "spend"))})`, `- Purchases (Snap-attributed): ${sum(now, "purchases")} (${arrow(sum(now, "purchases"), sum(before, "purchases"))})`, `- ROAS (Snap-attributed, includes 1-day view): ${roasOf(now)} (before: ${roasOf(before)})`, "- Snap's numbers overstate results; use them to compare, not as revenue.", "");
 L.push("## Top campaigns by spend", "| Campaign | Spend | vs before | ROAS | before | Frequency |", "|---|---|---|---|---|---|");
-for (const c of top) { const p = prev[c.id]; L.push(`| ${(names[c.id] ?? c.id).slice(0, 52)} | ${money(c.spend)} | ${arrow(c.spend, p?.spend ?? 0)} | ${c.roas ?? "-"} | ${p?.roas ?? "-"} | ${c.frequency} |`); }
+for (const c of top) { const p = prev[c.id]; L.push(`| ${(names[c.id] ?? c.id).slice(0, 52)} | ${money(c.spend)} | ${arrow(c.spend, p?.spend ?? 0)} | ${c.roas ?? "-"} | ${p?.roas ?? "-"} | ${c.frequency ?? "-"} |`); }
 L.push("", "## Account health", `- Active squads checked: ${health.active_squads_checked} (${health.active_squads_with_no_spend_in_window} had no spend this week)`, `- Squads with issues: ${health.squads_with_issues}; by type: ${JSON.stringify(health.issue_counts)}`);
 const noEx = health.findings.filter((f) => f.issues.some((i) => i.code === "NO_BUYER_EXCLUSION"));
 if (noEx.length) L.push(`- Spending squads with no buyer exclusion: ${noEx.length} (many may be intentional catalog retargeting)`);

@@ -15,7 +15,12 @@ Local MCP server for the Snapchat Marketing API. It reads, edits and creates cam
 - Safety settings are validated when the server starts. An invalid value (for example `100%`) **stops the server** instead of switching the limit off. Limits and the target account are fixed until restart; only the OAuth credentials are re-read from `.env`.
 
 ### What the approval token is not
-The token proves that this exact change was previewed and that nothing moved since. It does **not** prove that a person looked at it: the AI client receives the token and can send it back by itself. Human authorization is the permission prompt of your MCP client, so **do not auto-approve the write tools**. Tools are annotated (`readOnlyHint`, `destructiveHint`) so a client can auto-allow reads only. If your client supports MCP elicitation, `SNAP_HUMAN_APPROVAL=elicit` makes the server ask you directly before every write and refuse when it cannot ask. `SNAP_READ_ONLY=1` turns every write off.
+The token proves that this exact change was previewed and that nothing moved since. It does **not** prove that a person looked at it: the AI client receives the token and can send it back by itself. Human authorization is the permission prompt of your MCP client, so **do not auto-approve the write tools**. Tools are annotated (`readOnlyHint`, `destructiveHint`) so a client can auto-allow reads only. `SNAP_READ_ONLY=1` turns every write off.
+
+### Asking you directly (`SNAP_HUMAN_APPROVAL=elicit`)
+With this setting the server asks **you**, through the MCP client's own dialog (MCP elicitation), before every write, and refuses when it cannot ask. The question and your answer do not pass through the model. For anything that adds spend, for deletes and for undo, you must also type a 4-digit code that only the dialog shows. Limits you should know:
+- It needs a client that shows elicitation dialogs. Claude Code documents this for interactive terminal sessions; in non-interactive sessions the request is cancelled, so writes are refused. This server's tests use the SDK's client, not Claude Code itself: try one harmless write (a rename) before relying on it.
+- A client can be configured to answer elicitations automatically (in Claude Code, an `Elicitation` hook). Such a hook removes the human from the loop. Do not install one for this server, and keep your client's settings files out of reach of the AI's file tools.
 
 ### Safety settings (`.env`, all optional, restart to apply)
 | Setting | Default | Meaning |
@@ -26,7 +31,8 @@ The token proves that this exact change was previewed and that nothing moved sin
 | `SNAP_MAX_BUDGET_INCREASE_PCT` | 100 | Largest budget increase per step and per 24 hours |
 | `SNAP_MAX_BID_INCREASE_PCT` | 50 | Largest bid increase per step and per 24 hours |
 | `SNAP_MAX_LIFETIME_BUDGET` | 30 x max daily | Highest lifetime budget a copy may carry or an enable may start |
-| `SNAP_MAX_ACTIVATION_DAILY_BUDGET` | 5 x max daily | Most daily budget one enable call (or undo of a pause) may start |
+| `SNAP_MAX_ACTIVATION_DAILY_BUDGET` | 5 x max daily | Most daily budget one call may start (enable, undo of a pause, or a schedule change that starts delivery) |
+| `SNAP_MAX_ADDED_DAILY_BUDGET_24H` | 2 x the line above | Most daily budget this server may add to the account in any 24 hours, all tools together: budgets it starts plus budget increases |
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
 | `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
@@ -34,7 +40,9 @@ The token proves that this exact change was previewed and that nothing moved sin
 | `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
 | `SNAP_HTTP_TIMEOUT_MS` | 60000 | Deadline for each API request |
 
-Existing items above a limit can still be read, lowered and paused, but not raised or enabled until the owner raises the limit. The 24-hour rule and the audit trail rely on `changes.log.jsonl`; changes made in Ads Manager are not counted. Keep `.env` and the log out of reach of the AI client's file tools (for Claude Code: a `Read`/`Edit` deny rule for the project folder).
+Reports state what their numbers mean (`basis`): amounts are Snap micro-currency divided by 1,000,000 in the account currency, purchases are Snap-attributed, and attribution uses the account's default windows unless you pin them with `swipe_up_attribution_window` / `view_attribution_window` on `snap_report` and `snap_report_daily`. Totals are computed from raw values (account ROAS = purchase value / spend). A report that was cut off says `incomplete` or `truncated`.
+
+Existing items above a limit can still be read, lowered and paused, but not raised or enabled until the owner raises the limit. The 24-hour rules and the audit trail rely on `changes.log.jsonl` (plus an in-memory copy while the server runs, so deleting the file does not reset them until a restart); changes made in Ads Manager are not counted, and the file is not tamper-proof against someone with access to your disk. Keep `.env` and the log out of reach of the AI client's file tools (for Claude Code: a `Read`/`Edit` deny rule for the project folder).
 
 ## Tools
 | Tool | Type |
