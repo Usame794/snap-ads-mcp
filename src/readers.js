@@ -5,7 +5,8 @@ export function checkReadPath(path) {
   if (typeof path !== "string" || !path.startsWith("/") || path.includes("..") || path.includes("//") || path.includes("?")) {
     throw new Error("path must start with / and have no '..', '//' or '?'. Put query values in `query`.");
   }
-  if (!ALLOWED.some((p) => path === p || path.startsWith(p))) throw new Error(`path not allowed. It must start with one of: ${ALLOWED.join(" ")}`);
+  // Prefixes end in "/" and match as prefixes; "/me" is one exact endpoint, not a prefix for anything that starts with it.
+  if (!ALLOWED.some((p) => (p.endsWith("/") ? path.startsWith(p) : path === p))) throw new Error(`path not allowed. It must start with one of: ${ALLOWED.join(" ")}`);
   return path;
 }
 

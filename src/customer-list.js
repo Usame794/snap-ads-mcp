@@ -43,6 +43,8 @@ function parseCsvLine(line) {
 
 export function readIdentifiers(filePath, { kind, column, defaultCountryCode = "966" }) {
   if (!SCHEMAS[kind]) throw new Error("kind must be email or phone");
+  // Only spreadsheet exports are read. Without this, the "columns are..." hint below would echo the first line of any file.
+  if (!/\.(csv|tsv|txt)$/i.test(String(filePath))) throw new Error("file_path must be a .csv (or .tsv/.txt) export with a header row");
   let size;
   try { size = statSync(filePath).size; } catch { throw new Error(`File not found: ${filePath}`); }
   if (size > 100 * 1024 * 1024) throw new Error("File is over 100 MB");
@@ -50,7 +52,11 @@ export function readIdentifiers(filePath, { kind, column, defaultCountryCode = "
   if (lines.length < 2) throw new Error("The file needs a header row and at least one data row");
   const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
   let idx = column ? header.indexOf(String(column).trim().toLowerCase()) : header.findIndex((h) => (kind === "email" ? /e-?mail/.test(h) : /phone|mobile|mob|tel|جوال|هاتف/.test(h)));
-  if (idx < 0) throw new Error(`Could not find a ${kind} column. Columns are: ${header.join(", ")}. Pass \`column\`.`);
+  if (idx < 0) {
+    // Header names only, shortened, and never anything that looks like a value (an address, a number, a key=value pair).
+    const names = header.slice(0, 20).map((h) => (/[@=]|\d{6,}/.test(h) ? "(hidden)" : h.slice(0, 30)));
+    throw new Error(`Could not find a ${kind} column. Columns are: ${names.join(", ")}${header.length > 20 ? ", ..." : ""}. Pass \`column\`.`);
+  }
   if (lines.length - 1 > MAX_ROWS) throw new Error(`Too many rows (${lines.length - 1}, limit ${MAX_ROWS})`);
   const seen = new Set();
   let invalid = 0;
