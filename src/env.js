@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -28,4 +28,10 @@ export function setEnvValue(key, value, file = join(ROOT, ".env")) {
   const re = new RegExp(`^${key}=.*$`, "m");
   text = re.test(text) ? text.replace(re, () => `${key}=${value}`) : text.replace(/\n?$/, "\n") + `${key}=${value}\n`;
   writeFileSync(file, text, { mode: 0o600 });
+  // `mode` only applies when the file is created; an existing .env keeps its old permissions unless tightened here.
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    // not fatal (e.g. Windows), the value is still saved
+  }
 }

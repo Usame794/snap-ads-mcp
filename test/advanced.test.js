@@ -36,7 +36,7 @@ test("targeting: include segments and remove exclusions", () => {
 });
 
 test("ad squad builder: exclusions, interests, device, auto-bid", () => {
-  const ok = { campaignId: "c", name: "Squad X", dailyBudget: 10, pixelId: "px", bid: 2 };
+  const ok = { campaignId: "c", name: "Squad X", dailyBudget: 10, pixelId: "px", bid: 2, countries: ["sa"] };
   const s = buildAdSquad({ ...ok, excludeSegmentIds: ["b1"], includeSegmentIds: ["i1"], interests: ["SLC_11"], osType: "iOS" });
   assert.deepEqual(s.targeting.segments, [{ segment_id: ["i1"], operation: "INCLUDE" }, { segment_id: ["b1"], operation: "EXCLUDE" }]);
   assert.deepEqual(s.targeting.interests, [{ category_id: ["SLC_11"], operation: "INCLUDE" }]);
