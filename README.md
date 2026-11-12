@@ -120,7 +120,7 @@ Each user runs this server locally with their own OAuth app and their own ad acc
 ## Setup (one time)
 1. In Snap Ads Manager open **Business Details > OAuth Apps** and create an app. Redirect URL must be https and not `localhost`, for example `https://127.0.0.1/callback`. **The client secret is shown once**: select it and copy it before leaving the page.
 2. Copy `.env.example` to `.env`, fill in `SNAP_CLIENT_ID` and `SNAP_REDIRECT_URI`.
-3. Save the secret from your clipboard: `node scripts/save-secret.js` (macOS only; it refuses text that does not look like a secret and clears the clipboard). On other systems, add `SNAP_CLIENT_SECRET=...` to `.env` yourself and make the file private (`chmod 600 .env`).
+3. Save the secret from your clipboard: `node scripts/save-secret.js` (reads the clipboard on macOS, Windows, and Linux with `wl-paste`, `xclip` or `xsel`; it refuses text that does not look like a secret and clears the clipboard). Without a clipboard tool use `node scripts/save-secret.js --stdin`, or add `SNAP_CLIENT_SECRET=...` to `.env` yourself and make the file private (`chmod 600 .env`).
 4. Open this URL in a browser signed in to Snapchat and approve (replace the two values):
    `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=snap-ads-mcp`
 5. The browser redirects to `...?code=...`. Within a minute or two run: `CODE=THE_CODE node scripts/get-refresh-token.js`. It saves `SNAP_REFRESH_TOKEN` into `.env` and prints nothing secret.

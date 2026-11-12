@@ -9,7 +9,7 @@ For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat
 - `changes.js`: plan functions (status, budget, exclusions, rename, bid, targeting, schedule), `applyChange` (logs before/after), `containsDeep`, `planUndo`.
 - Feature modules: `copy.js`, `clone-ad.js`, `bulk.js`, `bulk-edit.js`, `influencer.js`, `influencer-batch.js`, `create.js`, `creative-tools.js`, `readers.js`, `report.js`, `async-report.js`, `audit.js`, `fatigue.js`, `customer-list.js`, `delete.js`.
 - `policy.js` (limits and market settings, validated at startup), `approval.js`, `ownership.js`, `activation.js`, `audit-log.js` (see "Safety design").
-- `scripts/`: `check.js`, `get-refresh-token.js`, `save-secret.js` (macOS clipboard), `smoke.js` (9 live read checks), `live-create-creative.js`, `weekly-report.js`.
+- `scripts/`: `check.js`, `get-refresh-token.js`, `save-secret.js` (clipboard or `--stdin`, via `src/clipboard.js`), `smoke.js` (9 live read checks), `live-create-creative.js`, `weekly-report.js`.
 
 ## Safety design (keep it)
 - Writes go through one path in `tools.js` (`write`): preview with a single-use `approval_token` (`approval.js`), ownership check (`ownership.js`), audit intent/result (`audit-log.js`). `confirm=true` without the token of that exact preview sends nothing.
