@@ -112,3 +112,29 @@ test("env: saving a value tightens an existing world-readable .env to 0600 and n
   assert.equal((statSync(file).mode & 0o777).toString(8), "600");
   assert.match(readFileSync(file, "utf8"), /^A=1\nSNAP_CLIENT_SECRET=value-123\n$/);
 });
+
+test("a refused confirmation names WHICH fields changed, never their values", async () => {
+  const { fingerprintOf, explainChange } = await import("../src/approval.js");
+  const before = { request: "r1", state: fingerprintOf({ current: { id: "c1", name: "A", status: "PAUSED", secret_like: "hunter2", targeting: { geos: [{ country_code: "sa" }] } }, impact: null }) };
+  const same = { request: "r1", state: fingerprintOf({ current: { id: "c1", name: "A", status: "PAUSED", secret_like: "hunter2", targeting: { geos: [{ country_code: "sa" }] } }, impact: null }) };
+  assert.equal(explainChange(before, same), " Reason: the previewed state could not be compared.", "nothing differs: no false field names");
+  const edited = { request: "r1", state: fingerprintOf({ current: { id: "c1", name: "B", status: "PAUSED", secret_like: "hunter3", targeting: { geos: [{ country_code: "ae" }] } }, impact: null }) };
+  const text = explainChange(before, edited);
+  assert.match(text, /changed in 3 place\(s\): current\.name, current\.secret_like, current\.targeting\.geos\[0\]\.country_code/);
+  assert.ok(!/hunter|"B"|ae\b/.test(text.replace("current.targeting.geos[0].country_code", "")), "no values in the explanation");
+  assert.match(explainChange(before, { ...edited, request: "r2" }), /arguments of this call are not the same/);
+  assert.equal(explainChange(null, edited), "");
+  // arrays are matched by id, so a reordering is not reported as a change of every row
+  const a = { request: "r", state: fingerprintOf({ items: [{ id: "x", v: 1 }, { id: "y", v: 2 }] }) };
+  const b = { request: "r", state: fingerprintOf({ items: [{ id: "y", v: 2 }, { id: "x", v: 1 }] }) };
+  assert.equal(explainChange(a, b), " Reason: the previewed state could not be compared.");
+  // big states are bounded
+  const big = fingerprintOf({ list: Array.from({ length: 2000 }, (_, i) => ({ id: i, v: i })) });
+  assert.ok(Object.keys(big).length <= 405);
+});
+
+test("the store passes the reason through on a mismatch", () => {
+  const store = new ApprovalStore();
+  const { token } = store.issue("t", "bind-1", { request: "r", state: { "current.status": "aaaa" } });
+  assert.throws(() => store.consume("t", token, "bind-2", { request: "r", state: { "current.status": "bbbb" } }), /changed since the preview.*Reason: the target changed in 1 place\(s\): current\.status\./);
+});

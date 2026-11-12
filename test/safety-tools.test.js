@@ -433,3 +433,18 @@ test("the server refuses to start with an unsafe configuration, and starts with 
   const ok = run({ SNAP_MAX_DAILY_BUDGET: "200" });
   assert.equal(ok.status, 0, ok.stderr);
 });
+
+test("a stale approval says which field of the target changed (by name), and a changed argument says so", async () => {
+  const t = await setup();
+  const args = { entity: "adsquad", id: "s1", daily_budget: 15 };
+  let p = (await t.call("snap_set_daily_budget", args)).data;
+  t.db.adsquads.s1 = { ...t.db.adsquads.s1, name: "Edited elsewhere", updated_at: "t-elsewhere", brand_new_field: "x" };
+  const stale = await t.call("snap_set_daily_budget", { ...args, confirm: true, approval_token: p.approval_token });
+  assert.match(stale.error, /Reason: the target changed in 3 place\(s\): current\.(name|updated_at|brand_new_field)/);
+  assert.ok(!/Edited elsewhere|t-elsewhere/.test(stale.error), "values are not echoed");
+  p = (await t.call("snap_set_daily_budget", args)).data;
+  const other = await t.call("snap_set_daily_budget", { ...args, daily_budget: 20, confirm: true, approval_token: p.approval_token });
+  assert.match(other.error, /Reason: the arguments of this call are not the same/);
+  assert.equal(t.writes().length, 0);
+  await t.close();
+});

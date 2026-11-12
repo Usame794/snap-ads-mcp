@@ -9,6 +9,37 @@ const canonical = (x) =>
 
 export const digest = (x) => createHash("sha256").update(canonical(x)).digest("hex");
 
+// A map of path -> short hash for the parts of a state (objects are walked, arrays are walked by id or index). It holds no values,
+// so it can be kept and compared to say WHICH fields differ between a preview and its confirmation, without ever printing them.
+const MAX_PATHS = 400;
+export function fingerprintOf(value, prefix = "", out = {}, depth = 0) {
+  if (value && typeof value === "object" && depth < 7 && Object.keys(out).length < MAX_PATHS) {
+    const entries = Array.isArray(value)
+      ? value.map((v, i) => [`[${v && typeof v === "object" && v.id != null ? v.id : i}]`, v])
+      : Object.entries(value).map(([k, v]) => [prefix ? `.${k}` : k, v]);
+    for (const [k, v] of entries) {
+      if (Object.keys(out).length >= MAX_PATHS) {
+        out["(more)"] = "cut"; // the full digest still detects changes in the rest; only the explanation is shortened
+        break;
+      }
+      fingerprintOf(v, prefix + k, out, depth + 1);
+    }
+    return out;
+  }
+  out[prefix || "(root)"] = digest(value ?? null).slice(0, 10);
+  return out;
+}
+
+// Which parts differ, by name only.
+export function explainChange(before, after) {
+  if (!before || !after) return "";
+  if (before.request !== after.request) return " Reason: the arguments of this call are not the same as the previewed ones.";
+  const names = new Set([...Object.keys(before.state ?? {}), ...Object.keys(after.state ?? {})]);
+  const changed = [...names].filter((k) => (before.state ?? {})[k] !== (after.state ?? {})[k]);
+  if (!changed.length) return " Reason: the previewed state could not be compared.";
+  return ` Reason: the target changed in ${changed.length} place(s): ${changed.slice(0, 12).join(", ")}${changed.length > 12 ? ", ..." : ""}.`;
+}
+
 export class ApprovalStore {
   constructor({ ttlMs = 600_000, repeatWindowMs = 600_000, now = Date.now, max = 500 } = {}) {
     this.ttlMs = ttlMs;
@@ -26,10 +57,10 @@ export class ApprovalStore {
     for (const [k, v] of this.executed) if (v.at < t - this.repeatWindowMs) this.executed.delete(k);
   }
 
-  issue(tool, binding) {
+  issue(tool, binding, detail = null) {
     this.prune();
     const token = `apr_${randomBytes(18).toString("base64url")}`;
-    this.tokens.set(token, { tool, binding, expires: this.now() + this.ttlMs, used: false });
+    this.tokens.set(token, { tool, binding, detail, expires: this.now() + this.ttlMs, used: false });
     return { token, expires_in_seconds: Math.round(this.ttlMs / 1000) };
   }
 
@@ -51,10 +82,10 @@ export class ApprovalStore {
   }
 
   // Validates and burns the token. Throws with the reason when it cannot be used.
-  consume(tool, token, binding) {
+  consume(tool, token, binding, detail = null) {
     const rec = this.precheck(tool, token);
     rec.used = true; // burned on any attempt, so a failed or interrupted execution is never blindly retried
-    if (rec.binding !== binding) throw new Error("The request or the state of its target changed since the preview (different arguments, or the item was modified in the meantime). Nothing was sent. Preview again.");
+    if (rec.binding !== binding) throw new Error(`The request or the state of its target changed since the preview (different arguments, or the item was modified in the meantime). Nothing was sent. Preview again.${explainChange(rec.detail, detail)}`);
   }
 
   // Duplicate protection for tools whose effect does not show up in the target's state (creates, claims, copies).

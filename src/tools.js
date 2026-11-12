@@ -19,7 +19,7 @@ import { executeCloneAd, loadTargets, planCloneAd } from "./clone-ad.js";
 import { executeBulkStatus, loadBulkItems, planBulkStatus } from "./bulk.js";
 import { buildAd, buildCreative, claimAdCode, getMedia, runInfluencerFlow, validateAdCode } from "./influencer.js";
 import { describePolicy, loadPolicy } from "./policy.js";
-import { ApprovalStore, digest } from "./approval.js";
+import { ApprovalStore, digest, fingerprintOf } from "./approval.js";
 import { addedDailyBudgetInWindow, auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
 import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
@@ -180,10 +180,11 @@ export function registerTools(server, client, env = process.env) {
           const ledger = p.blocked ? null : spendLedger(added);
           const requestDigest = digest({ tool: name, account: cfg.account ?? null, params: bind(params) });
           const binding = digest({ requestDigest, state: p.state ?? null });
+          const detail = { request: requestDigest, state: fingerprintOf(p.state ?? null) };
           if (!confirm) {
             if (p.blocked) return text(p.preview);
             const repeat = repeatGuard ? approvals.recentRepeat(requestDigest) : null;
-            const issued = approvals.issue(name, binding);
+            const issued = approvals.issue(name, binding, detail);
             return text({
               ...p.preview,
               ...(repeat ? { duplicate_warning: `An identical request was executed ${repeat.seconds_ago}s ago and will be refused if confirmed: ${JSON.stringify(repeat.summary)}` } : {}),
@@ -195,7 +196,7 @@ export function registerTools(server, client, env = process.env) {
             });
           }
           if (p.blocked) throw new Error(p.blocked);
-          approvals.consume(name, approval_token, binding);
+          approvals.consume(name, approval_token, binding, detail);
           if (repeatGuard) {
             const repeat = approvals.recentRepeat(requestDigest);
             if (repeat) throw new Error(`An identical ${name} request was already executed ${repeat.seconds_ago}s ago (${JSON.stringify(repeat.summary)}). Not repeating it. If a second one is really wanted, give it a different name or wait ${policy.repeatWindowSeconds}s.`);
