@@ -218,27 +218,35 @@ export class SnapClient {
     return created;
   }
 
-  async listChildren(parentEntity, parentId, childEntity, extraQuery = {}) {
-    // Follows every page. Safety checks (active children, budgets that would start) rely on this list being complete,
-    // so running out of pages is an error rather than a silent cut.
-    const path = `/${ENTITIES[parentEntity].plural}/${parentId}/${ENTITIES[childEntity].plural}`;
-    const out = [];
+  // Reads a list endpoint page by page. Returns { items, complete }. `complete` is false when the page limit was reached or a
+  // next-page link could not be followed; callers that need the whole list (safety checks) must treat that as an error.
+  async listPaged(path, entity, { query = {}, maxPages = MAX_LIST_PAGES } = {}) {
+    const items = [];
     let cursor;
-    for (let page = 0; page < MAX_LIST_PAGES; page++) {
-      const data = await this.request("GET", path, { query: { limit: 500, ...extraQuery, cursor } });
-      out.push(...SnapClient.unwrap(data, childEntity));
+    for (let page = 0; page < maxPages; page++) {
+      const data = await this.request("GET", path, { query: { limit: 500, ...query, cursor } });
+      items.push(...SnapClient.unwrap(data, entity));
       const next = data.paging?.next_link;
-      if (!next) return out;
+      if (!next) return { items, complete: true };
       let nextCursor = null;
       try {
         nextCursor = new URL(next).searchParams.get("cursor");
       } catch {
         nextCursor = null;
       }
-      if (!nextCursor || nextCursor === cursor) throw new Error(`Snap returned a next page for ${path} that cannot be followed; the list would be incomplete.`);
+      if (!nextCursor || nextCursor === cursor) return { items, complete: false, reason: "a next page could not be followed" };
       cursor = nextCursor;
     }
-    throw new Error(`${path} has more than ${MAX_LIST_PAGES * 500} items; refusing to work on an incomplete list.`);
+    return { items, complete: false, reason: `more than ${maxPages * 500} items` };
+  }
+
+  async listChildren(parentEntity, parentId, childEntity, extraQuery = {}) {
+    // Safety checks (active children, budgets that would start) rely on this list being complete,
+    // so an incomplete list is an error rather than a silent cut.
+    const path = `/${ENTITIES[parentEntity].plural}/${parentId}/${ENTITIES[childEntity].plural}`;
+    const { items, complete, reason } = await this.listPaged(path, childEntity, { query: extraQuery });
+    if (!complete) throw new Error(`${path}: ${reason}; refusing to work on an incomplete list.`);
+    return items;
   }
 
   async updateEntity(entity, obj) {

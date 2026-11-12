@@ -25,6 +25,19 @@ import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
 
 const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
+// A list result keeps its plain array shape; anything the reader must know (cut off, more than shown) goes in a second block.
+class ListResult {
+  constructor(items, notes = []) {
+    this.items = items;
+    this.notes = notes;
+  }
+}
+const asResult = (out) => {
+  if (!(out instanceof ListResult)) return text(out);
+  const r = text(out.items);
+  if (out.notes.length) r.content.push({ type: "text", text: `NOTE: ${out.notes.join(" ")}` });
+  return r;
+};
 const fail = (e) => ({ isError: true, content: [{ type: "text", text: `Error: ${e.message}` }] });
 
 const brief = (o) => ({
@@ -130,7 +143,7 @@ export function registerTools(server, client, env = process.env) {
   const read = (name, { description, shape = {}, annotations = READ }, fn) =>
     server.registerTool(name, { description, inputSchema: z.object(shape).strict(), annotations }, async (args) => {
       try {
-        return text(await fn(args));
+        return asResult(await fn(args));
       } catch (e) {
         return fail(e);
       }
@@ -249,36 +262,35 @@ export function registerTools(server, client, env = process.env) {
     return { ok: true, me: me.me ?? me, ad_account: cfg.account ?? null, safety_limits: describePolicy(policy) };
   });
 
+  // Lists read every page, apply the status filter to ALL rows, and only then cut to `limit`. If anything was left out, say so.
+  const listRows = async (path, entity, { status, limit }) => {
+    const { items, complete, reason } = await client.listPaged(path, entity);
+    const rows = items.map(brief).filter((r) => !status || r.status === status);
+    const notes = [];
+    if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more items exist that are not included.`);
+    if (rows.length > limit) notes.push(`${rows.length} items match; showing the first ${limit}. Raise limit (max 500) or narrow the filters.`);
+    return new ListResult(rows.slice(0, limit), notes);
+  };
+
   read(
     "snap_list_campaigns",
     {
-      description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given.",
+      description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given. Reads every page and applies the status filter before the limit; a note says when the list is cut.",
       shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
     },
-    async ({ ad_account_id, status, limit }) => {
-      const data = await client.request("GET", `/adaccounts/${account(ad_account_id)}/campaigns`, { query: { limit } });
-      const rows = SnapClient.unwrap(data, "campaign").map(brief);
-      return rows.filter((r) => !status || r.status === status);
-    },
+    ({ ad_account_id, status, limit }) => listRows(`/adaccounts/${account(ad_account_id)}/campaigns`, "campaign", { status, limit }),
   );
 
   read(
     "snap_list_adsquads",
     {
-      description: "List ad squads for a campaign, or for the whole ad account when only the account is given (read-only).",
+      description: "List ad squads for a campaign, or for the whole ad account when only the account is given (read-only). Reads every page and applies the status filter before the limit; a note says when the list is cut.",
       shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
     },
-    async ({ campaign_id, ad_account_id, status, limit }) => {
-      const path = campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`;
-      const data = await client.request("GET", path, { query: { limit } });
-      return SnapClient.unwrap(data, "adsquad").map(brief).filter((r) => !status || r.status === status);
-    },
+    ({ campaign_id, ad_account_id, status, limit }) => listRows(campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`, "adsquad", { status, limit }),
   );
 
-  read("snap_list_ads", { description: "List ads in an ad squad (read-only).", shape: { adsquad_id: id() } }, async ({ adsquad_id }) => {
-    const data = await client.request("GET", `/adsquads/${adsquad_id}/ads`);
-    return SnapClient.unwrap(data, "ad").map(brief);
-  });
+  read("snap_list_ads", { description: "List ads in an ad squad (read-only). Reads every page; a note says when the list is cut.", shape: { adsquad_id: id() } }, ({ adsquad_id }) => listRows(`/adsquads/${adsquad_id}/ads`, "ad", { limit: 500 }));
 
   read("snap_get_entity", { description: "Get one campaign, ad squad or ad in full, including targeting (read-only).", shape: { entity: entityEnum, id: id() } }, ({ entity, id: entityId }) => client.getEntity(entity, entityId));
 
@@ -304,12 +316,16 @@ export function registerTools(server, client, env = process.env) {
   read(
     "snap_list_creatives",
     {
-      description: "List creatives in an ad account (read-only), so you can see what can be reused.",
+      description: "List creatives in an ad account (read-only), so you can see what can be reused. Reads every page; a note says when the list is cut.",
       shape: { ad_account_id: id().optional(), limit: z.number().int().min(1).max(500).default(50) },
     },
     async ({ ad_account_id, limit }) => {
-      const data = await client.request("GET", `/adaccounts/${account(ad_account_id)}/creatives`, { query: { limit } });
-      return (data.creatives ?? []).map((r) => r.creative ?? r).map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
+      const { items, complete, reason } = await client.listPaged(`/adaccounts/${account(ad_account_id)}/creatives`, "creative");
+      const rows = items.map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
+      const notes = [];
+      if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more creatives exist that are not included.`);
+      if (rows.length > limit) notes.push(`${rows.length} creatives found; showing the first ${limit}. Raise limit (max 500).`);
+      return new ListResult(rows.slice(0, limit), notes);
     },
   );
 

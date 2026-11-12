@@ -64,9 +64,14 @@ test("listChildren follows every page and refuses an incomplete list", async () 
   assert.deepEqual(seen, [null, "p2", "p3"]);
 
   const stuck = new SnapClient({ env, fetchImpl: async (url) => token(url) ?? page(["a"], "same") });
-  await assert.rejects(() => stuck.listChildren("campaign", "c", "adsquad"), /cannot be followed|incomplete/);
+  await assert.rejects(() => stuck.listChildren("campaign", "c", "adsquad"), /could not be followed.*incomplete/);
   const broken = new SnapClient({ env, fetchImpl: async (url) => token(url) ?? json({ adsquads: [], paging: { next_link: "not a url" } }) });
-  await assert.rejects(() => broken.listChildren("campaign", "c", "adsquad"), /cannot be followed/);
+  await assert.rejects(() => broken.listChildren("campaign", "c", "adsquad"), /could not be followed/);
+  // listPaged (used by the list tools) reports an incomplete list instead of throwing
+  const partial = await stuck.listPaged("/campaigns/c/adsquads", "adsquad");
+  assert.deepEqual([partial.complete, partial.items.length, typeof partial.reason], [false, 2, "string"]);
+  const capped = await new SnapClient({ env, fetchImpl: async (url) => token(url) ?? page(["x"], "n" + Math.random()) }).listPaged("/campaigns/c/adsquads", "adsquad", { maxPages: 3 });
+  assert.deepEqual([capped.complete, capped.items.length, capped.reason], [false, 3, "more than 1500 items"]);
 });
 
 test("upload never sends the bearer token to a host other than the API", async () => {

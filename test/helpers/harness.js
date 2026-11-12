@@ -22,6 +22,14 @@ export function fakeSnap(world = {}) {
   const hooks = { failGetAfterPut: false, failNextWrite: null };
   let putSeen = false;
   const json = (b, s = 200) => ({ ok: s < 300, status: s, json: async () => b, headers: { get: () => null } });
+  // Like Snap: `limit` rows per page, and a next_link carrying a cursor (here an offset) while rows remain.
+  const paged = (plural, path, u, all) => {
+    const limit = Math.min(Number(u.searchParams.get("limit") ?? 50), hooks.pageSize ?? 500);
+    const start = Number(u.searchParams.get("cursor") ?? 0);
+    const body = wrap(plural, all.slice(start, start + limit));
+    if (start + limit < all.length) body.paging = { next_link: hooks.brokenPaging ? "not a url" : `https://adsapi.snapchat.com/v1${path}?limit=${limit}&cursor=${start + limit}` };
+    return json(body);
+  };
   const wrap = (plural, objs) => ({ request_status: "SUCCESS", [plural]: objs.map((o) => ({ sub_request_status: "SUCCESS", [KIND[plural]]: o })) });
   const fetchImpl = async (url, opts = {}) => {
     const u = new URL(String(url));
@@ -38,9 +46,9 @@ export function fakeSnap(world = {}) {
     if (method === "GET") {
       if (hooks.failGetAfterPut && putSeen) return json({ request_status: "ERROR", debug_message: "boom" }, 500);
       if (seg[0] === "adaccounts" && seg.length === 2) return json({ adaccounts: [{ adaccount: { id: seg[1], currency: db.currency, organization_id: "org-1" } }] });
-      if (seg[0] === "adaccounts" && seg.length === 3 && db[seg[2]]) return json(wrap(seg[2], Object.values(db[seg[2]]).filter((o) => (seg[2] === "campaigns" ? o.ad_account_id === seg[1] : true))));
+      if (seg[0] === "adaccounts" && seg.length === 3 && db[seg[2]]) return paged(seg[2], path, u, Object.values(db[seg[2]]).filter((o) => (seg[2] === "campaigns" ? o.ad_account_id === seg[1] : true)));
       if (seg[2] === "stats") return json({ total_stats: [{ total_stat: { stats: { spend: (db[seg[0]]?.[seg[1]]?._spend ?? 0) * 1e6 } } }] });
-      if (seg.length === 3 && PARENT_KEY[seg[2]]) return json(wrap(seg[2], Object.values(db[seg[2]]).filter((o) => o[PARENT_KEY[seg[2]]] === seg[1])));
+      if (seg.length === 3 && PARENT_KEY[seg[2]]) return paged(seg[2], path, u, Object.values(db[seg[2]]).filter((o) => o[PARENT_KEY[seg[2]]] === seg[1]));
       if (seg.length === 2 && db[seg[0]]) {
         const o = db[seg[0]][seg[1]];
         return o ? json(wrap(seg[0], [o])) : json({ request_status: "ERROR", debug_message: "not found" }, 404);
