@@ -76,3 +76,27 @@ test("creatives are listed from every page too", async () => {
   assert.match(noteOf(cut), /76 creatives found; showing the first 50/);
   await t.close();
 });
+
+test("name_contains finds one item among thousands, before the limit is applied", async () => {
+  const w = manyCampaigns(1200);
+  w.campaigns.c1200.name = "ZY - SC - TEST - Empty Campaign - OCT26";
+  w.campaigns.c3.name = "zy - sc - test - empty campaign - OCT26 (copy)";
+  const t = await setup({ world: w });
+  t.hooks.pageSize = 500;
+  const r = await t.raw("snap_list_campaigns", { name_contains: "TEST - Empty Campaign", limit: 100 });
+  assert.deepEqual(JSON.parse(r.content[0].text).map((c) => c.id).sort(), ["c1200", "c3"], "found past the 500-row mark, case-insensitive");
+  assert.equal(r.content.length, 1, "complete and under the limit: no note");
+  assert.deepEqual(JSON.parse((await t.raw("snap_list_campaigns", { name_contains: "no such name" })).content[0].text), []);
+  const both = JSON.parse((await t.raw("snap_list_campaigns", { name_contains: "test", status: "PAUSED" })).content[0].text);
+  assert.equal(both.length, 2);
+  assert.equal((await t.raw("snap_list_campaigns", { name_contains: "" })).isError, true, "an empty filter is refused");
+  await t.close();
+});
+
+test("name_contains works on ad squads and creatives as well", async () => {
+  const t = await setup();
+  assert.deepEqual(JSON.parse((await t.raw("snap_list_adsquads", { campaign_id: "c1", name_contains: "s2" })).content[0].text).map((s) => s.id), ["s2"]);
+  assert.deepEqual(JSON.parse((await t.raw("snap_list_creatives", { name_contains: "ONE" })).content[0].text).map((c) => c.id), ["cr1"]);
+  assert.deepEqual(JSON.parse((await t.raw("snap_list_creatives", { name_contains: "zzz" })).content[0].text), []);
+  await t.close();
+});

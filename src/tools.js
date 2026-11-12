@@ -263,9 +263,11 @@ export function registerTools(server, client, env = process.env) {
   });
 
   // Lists read every page, apply the status filter to ALL rows, and only then cut to `limit`. If anything was left out, say so.
-  const listRows = async (path, entity, { status, limit }) => {
+  const nameFilter = z.string().min(1).max(100).optional().describe("Only items whose name contains this text (case-insensitive). Use it to find one item in a big account.");
+  const listRows = async (path, entity, { status, limit, nameContains }) => {
     const { items, complete, reason } = await client.listPaged(path, entity);
-    const rows = items.map(brief).filter((r) => !status || r.status === status);
+    const needle = nameContains?.toLowerCase();
+    const rows = items.map(brief).filter((r) => (!status || r.status === status) && (!needle || String(r.name ?? "").toLowerCase().includes(needle)));
     const notes = [];
     if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more items exist that are not included.`);
     if (rows.length > limit) notes.push(`${rows.length} items match; showing the first ${limit}. Raise limit (max 500) or narrow the filters.`);
@@ -275,19 +277,19 @@ export function registerTools(server, client, env = process.env) {
   read(
     "snap_list_campaigns",
     {
-      description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given. Reads every page and applies the status filter before the limit; a note says when the list is cut.",
-      shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
+      description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given. Reads every page and applies the status and name_contains filters before the limit (use name_contains to find one campaign in a big account); a note says when the list is cut.",
+      shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100) },
     },
-    ({ ad_account_id, status, limit }) => listRows(`/adaccounts/${account(ad_account_id)}/campaigns`, "campaign", { status, limit }),
+    ({ ad_account_id, status, name_contains, limit }) => listRows(`/adaccounts/${account(ad_account_id)}/campaigns`, "campaign", { status, limit, nameContains: name_contains }),
   );
 
   read(
     "snap_list_adsquads",
     {
       description: "List ad squads for a campaign, or for the whole ad account when only the account is given (read-only). Reads every page and applies the status filter before the limit; a note says when the list is cut.",
-      shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(500).default(100) },
+      shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100) },
     },
-    ({ campaign_id, ad_account_id, status, limit }) => listRows(campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`, "adsquad", { status, limit }),
+    ({ campaign_id, ad_account_id, status, name_contains, limit }) => listRows(campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`, "adsquad", { status, limit, nameContains: name_contains }),
   );
 
   read("snap_list_ads", { description: "List ads in an ad squad (read-only). Reads every page; a note says when the list is cut.", shape: { adsquad_id: id() } }, ({ adsquad_id }) => listRows(`/adsquads/${adsquad_id}/ads`, "ad", { limit: 500 }));
@@ -317,11 +319,12 @@ export function registerTools(server, client, env = process.env) {
     "snap_list_creatives",
     {
       description: "List creatives in an ad account (read-only), so you can see what can be reused. Reads every page; a note says when the list is cut.",
-      shape: { ad_account_id: id().optional(), limit: z.number().int().min(1).max(500).default(50) },
+      shape: { ad_account_id: id().optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(50) },
     },
-    async ({ ad_account_id, limit }) => {
+    async ({ ad_account_id, name_contains, limit }) => {
       const { items, complete, reason } = await client.listPaged(`/adaccounts/${account(ad_account_id)}/creatives`, "creative");
-      const rows = items.map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
+      const needle = name_contains?.toLowerCase();
+      const rows = items.filter((c) => !needle || String(c.name ?? "").toLowerCase().includes(needle)).map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
       const notes = [];
       if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more creatives exist that are not included.`);
       if (rows.length > limit) notes.push(`${rows.length} creatives found; showing the first ${limit}. Raise limit (max 500).`);
