@@ -277,3 +277,31 @@ test("audit log integrity: one parseable line per record, private file, spend re
   assert.ok(!raw.includes("test-access-token") && !/apr_[A-Za-z0-9_-]{10,}/.test(raw) && !raw.includes("\"SNAP_CLIENT_SECRET\""));
   await t.close();
 });
+
+test("enabling a campaign and its ad squad in two separate steps still counts the budget once it can deliver", async () => {
+  // c2 is PAUSED with ACTIVE squads s3 (30) and s4 (50) and a PAUSED squad s5 (70)
+  const squadFirst = await setup({ env: { SNAP_MAX_ADDED_DAILY_BUDGET_24H: "1000" } });
+  const a = await squadFirst.twoStep("snap_set_status", { entity: "adsquad", id: "s5", status: "ACTIVE" });
+  assert.equal(a.preview.data.activation.starts_later[0].daily_budget, 70, "the preview says what starts later");
+  assert.equal(a.preview.data.spend_impact, undefined, "nothing can deliver yet, nothing is counted yet");
+  assert.equal(addedDailyBudgetInWindow(squadFirst.logFile), 0);
+  const b = await squadFirst.twoStep("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" });
+  assert.equal(b.preview.data.activation.daily_budget_that_starts_delivering, 150, "30 + 50 + the squad enabled in step one");
+  assert.equal(addedDailyBudgetInWindow(squadFirst.logFile), 150, "counted when it becomes able to deliver");
+  await squadFirst.close();
+
+  // the other order: the campaign first (its squads are paused or counted), then the squad under a live campaign
+  const campaignFirst = await setup({ env: { SNAP_MAX_ADDED_DAILY_BUDGET_24H: "200" } });
+  await campaignFirst.twoStep("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" });
+  assert.equal(addedDailyBudgetInWindow(campaignFirst.logFile), 80);
+  const c = await campaignFirst.call("snap_set_status", { entity: "adsquad", id: "s5", status: "ACTIVE" });
+  assert.equal(c.data.activation.daily_budget_that_starts_delivering, 70);
+  assert.equal(c.data.spend_impact.already_added_last_24h, 80);
+  // 80 + 70 fits under 200; a limit of 120 would refuse the second step
+  await campaignFirst.close();
+  const tight = await setup({ env: { SNAP_MAX_ADDED_DAILY_BUDGET_24H: "120" } });
+  await tight.twoStep("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" });
+  assert.match((await tight.call("snap_set_status", { entity: "adsquad", id: "s5", status: "ACTIVE" })).error, /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
+  assert.equal(tight.db.adsquads.s5.status, "PAUSED");
+  await tight.close();
+});
