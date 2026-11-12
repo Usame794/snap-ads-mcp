@@ -9,6 +9,23 @@ const canonical = (x) =>
 
 export const digest = (x) => createHash("sha256").update(canonical(x)).digest("hex");
 
+// Fields Snap works out by itself (delivery state, review state). They can change, or come back in another order, between two
+// reads of an item nobody edited, so they must not decide whether a preview is still valid. An edit through the API changes
+// `updated_at`, which is kept; anything that matters for spending is covered by the arguments and, for enabling, by the
+// budgets of the children (which are part of the state).
+const DERIVED = new Set(["delivery_status", "delivery_properties_version", "targeting_reach_status", "review_status", "review_status_reasons"]);
+const keyOf = (v) => (v && typeof v === "object" ? String(v.id ?? v.adsquad_id ?? v.segment_id ?? canonical(v)) : canonical(v));
+
+// The state as it is bound to an approval: derived fields removed, and lists compared without regard to their order
+// (a list of ids or ad squads is the same list whichever way Snap sorted it).
+export function stabilizeState(value) {
+  if (Array.isArray(value)) return value.map(stabilizeState).sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).filter(([k]) => !DERIVED.has(k)).map(([k, v]) => [k, stabilizeState(v)]));
+  }
+  return value;
+}
+
 // A map of path -> short hash for the parts of a state (objects are walked, arrays are walked by id or index). It holds no values,
 // so it can be kept and compared to say WHICH fields differ between a preview and its confirmation, without ever printing them.
 const MAX_PATHS = 400;

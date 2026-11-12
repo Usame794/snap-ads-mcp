@@ -138,3 +138,15 @@ test("the store passes the reason through on a mismatch", () => {
   const { token } = store.issue("t", "bind-1", { request: "r", state: { "current.status": "aaaa" } });
   assert.throws(() => store.consume("t", token, "bind-2", { request: "r", state: { "current.status": "bbbb" } }), /changed since the preview.*Reason: the target changed in 1 place\(s\): current\.status\./);
 });
+
+test("stabilizeState drops what Snap computes itself and ignores list order, but keeps real edits visible", async () => {
+  const { stabilizeState, digest } = await import("../src/approval.js");
+  const a = { current: { id: "c1", name: "A", updated_at: "t1", delivery_status: ["X", "Y", "Z"], review_status: "APPROVED", ids: ["b", "a"], squads: [{ id: "s2", n: 2 }, { id: "s1", n: 1 }] } };
+  const reordered = { current: { id: "c1", name: "A", updated_at: "t1", delivery_status: ["Z", "X"], review_status: "REJECTED", ids: ["a", "b"], squads: [{ id: "s1", n: 1 }, { id: "s2", n: 2 }] } };
+  assert.equal(digest(stabilizeState(a)), digest(stabilizeState(reordered)), "derived fields and list order do not matter");
+  for (const edit of [{ name: "B" }, { updated_at: "t2" }, { ids: ["a", "c"] }, { squads: [{ id: "s1", n: 1 }, { id: "s2", n: 3 }] }, { squads: [{ id: "s1", n: 1 }] }]) {
+    assert.notEqual(digest(stabilizeState(a)), digest(stabilizeState({ current: { ...a.current, ...edit } })), JSON.stringify(edit));
+  }
+  assert.deepEqual(stabilizeState({ delivery_status: ["A"], keep: 1, nested: { review_status_reasons: ["r"], keep: [3, 1, 2] } }), { keep: 1, nested: { keep: [1, 2, 3] } });
+  assert.equal(stabilizeState(null), null);
+});

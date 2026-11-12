@@ -26,6 +26,7 @@ export function fakeSnap(world = {}) {
   const paged = (plural, path, u, all) => {
     const limit = Math.min(Number(u.searchParams.get("limit") ?? 50), hooks.pageSize ?? 500);
     const start = Number(u.searchParams.get("cursor") ?? 0);
+    if (hooks.reverseLists) all = [...all].reverse();
     const body = wrap(plural, all.slice(start, start + limit));
     if (start + limit < all.length) body.paging = { next_link: hooks.brokenPaging ? "not a url" : `https://adsapi.snapchat.com/v1${path}?limit=${limit}&cursor=${start + limit}` };
     return json(body);

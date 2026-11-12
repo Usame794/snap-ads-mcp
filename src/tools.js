@@ -19,7 +19,7 @@ import { executeCloneAd, loadTargets, planCloneAd } from "./clone-ad.js";
 import { executeBulkStatus, loadBulkItems, planBulkStatus } from "./bulk.js";
 import { buildAd, buildCreative, claimAdCode, getMedia, runInfluencerFlow, validateAdCode } from "./influencer.js";
 import { describePolicy, loadPolicy } from "./policy.js";
-import { ApprovalStore, digest, fingerprintOf } from "./approval.js";
+import { ApprovalStore, digest, fingerprintOf, stabilizeState } from "./approval.js";
 import { addedDailyBudgetInWindow, auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
 import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
@@ -179,8 +179,10 @@ export function registerTools(server, client, env = process.env) {
           const added = round2(p.addedDailyBudget ?? 0);
           const ledger = p.blocked ? null : spendLedger(added);
           const requestDigest = digest({ tool: name, account: cfg.account ?? null, params: bind(params) });
-          const binding = digest({ requestDigest, state: p.state ?? null });
-          const detail = { request: requestDigest, state: fingerprintOf(p.state ?? null) };
+          // Bound to the state without the fields Snap computes itself and without list order (see stabilizeState).
+          const boundState = stabilizeState(p.state ?? null);
+          const binding = digest({ requestDigest, state: boundState });
+          const detail = { request: requestDigest, state: fingerprintOf(boundState) };
           if (!confirm) {
             if (p.blocked) return text(p.preview);
             const repeat = repeatGuard ? approvals.recentRepeat(requestDigest) : null;

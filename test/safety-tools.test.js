@@ -448,3 +448,49 @@ test("a stale approval says which field of the target changed (by name), and a c
   assert.equal(t.writes().length, 0);
   await t.close();
 });
+
+test("regression: fields Snap computes itself, and the order of its lists, do not make an approval stale", async () => {
+  // delivery_status came back in another order on the second read of an untouched campaign (seen on a real account)
+  const t = await setup();
+  t.db.campaigns.c1.delivery_status = ["NOT_EFFECTIVE_ACTIVE", "CAMPAIGN_HAS_NO_ACTIVE_AD_SQUAD", "NOT_ACTIVE"];
+  const args = { entity: "campaign", id: "c1", new_name: "Campaign one renamed" };
+  const p = (await t.call("snap_rename", args)).data;
+  t.db.campaigns.c1.delivery_status = ["NOT_EFFECTIVE_ACTIVE", "NOT_ACTIVE", "CAMPAIGN_HAS_NO_ACTIVE_AD_SQUAD"];
+  t.db.campaigns.c1.review_status = "PENDING";
+  const done = await t.call("snap_rename", { ...args, confirm: true, approval_token: p.approval_token });
+  assert.equal(done.data?.applied, true, done.error);
+  assert.equal(t.db.campaigns.c1.name, "Campaign one renamed");
+  assert.equal(puts(t), 1);
+  // the PUT never sends the computed fields back
+  const sent = t.writes().find((c) => c.method === "PUT").body.campaigns[0];
+  assert.ok(!("delivery_status" in sent) && !("review_status" in sent));
+
+  // a real edit by someone else is still caught
+  const q = (await t.call("snap_rename", { entity: "campaign", id: "c2", new_name: "Campaign two renamed" })).data;
+  t.db.campaigns.c2 = { ...t.db.campaigns.c2, name: "Changed in Ads Manager", updated_at: "t-elsewhere" };
+  const stale = await t.call("snap_rename", { entity: "campaign", id: "c2", new_name: "Campaign two renamed", confirm: true, approval_token: q.approval_token });
+  assert.match(stale.error, /changed in 2 place\(s\): current\.(name|updated_at), current\.(name|updated_at)/);
+  await t.close();
+});
+
+test("the order in which Snap lists children does not make an enabling approval stale; a changed budget still does", async () => {
+  const t = await setup();
+  const args = { entity: "campaign", id: "c2", status: "ACTIVE" };
+  const p = (await t.call("snap_set_status", args)).data;
+  assert.equal(p.activation.daily_budget_that_starts_delivering, 80);
+  t.hooks.reverseLists = true; // same children, other order
+  const done = await t.call("snap_set_status", { ...args, confirm: true, approval_token: p.approval_token });
+  assert.equal(done.data?.applied, true, done.error);
+  assert.equal(t.db.campaigns.c2.status, "ACTIVE");
+  t.hooks.reverseLists = false;
+
+  const u = await setup();
+  const q = (await u.call("snap_set_status", args)).data;
+  u.hooks.reverseLists = true;
+  u.db.adsquads.s3.daily_budget_micro = 400e6; // a child budget really changed
+  const stale = await u.call("snap_set_status", { ...args, confirm: true, approval_token: q.approval_token });
+  assert.match(stale.error, /changed since the preview/);
+  assert.equal(u.db.campaigns.c2.status, "PAUSED");
+  await t.close();
+  await u.close();
+});
