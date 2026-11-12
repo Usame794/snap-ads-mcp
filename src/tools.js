@@ -793,7 +793,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_targeting",
     {
-      description: "Change an ad squad's targeting: countries, age, gender, interests, device OS, include segments, or stop excluding segments. Everything not mentioned is kept. Previews unless confirm=true.",
+      description: "Change an ad squad's targeting: countries, age, gender, interests, device OS, include segments, or stop excluding segments. Everything not mentioned is kept; countries that stay in the list keep their regional geo entries. Previews unless confirm=true.",
       shape: {
         adsquad_id: id(),
         countries: z.array(z.string()).optional(),

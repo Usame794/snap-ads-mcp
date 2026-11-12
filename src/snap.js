@@ -159,14 +159,22 @@ export class SnapClient {
   }
 
   async request(method, path, { query, body } = {}) {
-    const token = await this.accessToken();
     const url = new URL(API + path);
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    const res = await this.fetchRetry(url, {
-      method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const send = async () =>
+      this.fetchRetry(url, {
+        method,
+        headers: { Authorization: `Bearer ${await this.accessToken()}`, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    let res = await send();
+    if (res.status === 401) {
+      // The access token was refused (revoked or expired early). A 401 means the request was not processed, so it is safe to
+      // get a new token and send it once more, writes included. If the refresh token is bad, accessToken() says so.
+      this.token = null;
+      this.tokenExpiry = 0;
+      res = await send();
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.request_status === "ERROR") {
       const detail = data.debug_message || data.display_message || JSON.stringify(data).slice(0, 400);

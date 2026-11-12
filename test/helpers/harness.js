@@ -39,6 +39,10 @@ export function fakeSnap(world = {}) {
     const path = u.pathname.replace(/^\/v1/, "");
     calls.push({ method, path, query: Object.fromEntries(u.searchParams), body: opts.body && typeof opts.body === "string" ? JSON.parse(opts.body) : undefined });
     const seg = path.split("/").filter(Boolean);
+    if (hooks.reject401 && method === hooks.reject401) {
+      hooks.reject401 = null; // the access token was refused once, before anything was processed
+      return json({ request_status: "ERROR", debug_message: "Unauthorized" }, 401);
+    }
     if (method !== "GET" && hooks.failNextWrite) {
       const e = hooks.failNextWrite;
       hooks.failNextWrite = null;

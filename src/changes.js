@@ -89,8 +89,14 @@ export function planTargeting(current, o) {
   if (countries) {
     const list = countries.map((c) => String(c).trim().toLowerCase());
     if (!list.length || list.some((c) => !/^[a-z]{2}$/.test(c))) throw new Error("countries must be 2-letter codes, e.g. [\"sa\", \"ae\"]");
-    targeting.geos = list.map((country_code) => ({ country_code }));
-    parts.push(`countries ${list.join(",")}`);
+    // Countries that stay keep every geo entry they already have (regions, cities, exclusions); only new countries are added as
+    // whole countries and countries not in the list are removed. Replacing the list outright would widen a regional ad squad.
+    const existing = Array.isArray(targeting.geos) ? targeting.geos : [];
+    const kept = existing.filter((g) => list.includes(String(g?.country_code ?? "").toLowerCase()));
+    const have = new Set(kept.map((g) => String(g.country_code).toLowerCase()));
+    targeting.geos = [...kept, ...list.filter((c) => !have.has(c)).map((country_code) => ({ country_code }))];
+    const detailed = kept.filter((g) => Object.keys(g).some((k) => k !== "country_code")).length;
+    parts.push(`countries ${list.join(",")}${detailed ? ` (kept ${detailed} regional/detailed geo entr${detailed === 1 ? "y" : "ies"})` : ""}`);
   }
   if (minAge != null || maxAge != null || gender) {
     if (gender && !GENDERS.includes(gender)) throw new Error(`gender must be one of ${GENDERS.join(", ")}`);
