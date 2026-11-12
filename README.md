@@ -148,8 +148,18 @@ Use the absolute path to `node` as `command` if the app cannot find it. The serv
 **ChatGPT**: ChatGPT connects to *remote* MCP servers (an https URL) through its connectors / developer mode, not to local stdio programs. This server is local only, so it cannot be added to ChatGPT as it is. Doing that would need a hosted version with per-user OAuth and encrypted token storage (see "Not built"). Do not expose this server publicly as it is: it can change real ad campaigns. Other desktop MCP clients that launch local stdio servers (Cursor, VS Code, Cline) work with the same `command` and `args` as above.
 
 ## Verified live (against the real Snapchat API)
-These ran live on the maintainer's own account, before the safety layer described above was added. The safety layer, the reports' extra fields and the market settings are covered by mocked tests only; check them with `SNAP_READ_ONLY=1` on your account first. Everything above has run live except the items under "Not run live". That includes: pause/enable (single and bulk), budget, bid, targeting (countries, age, gender, interests, devices, include segments, remove exclusions), schedule, rename, bulk edits, undo, campaign / ad squad copy, ad clone, creative clone, create campaign, create ad squad (max bid and auto-bid, with exclusions), lookalike, pixel audience, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), all reports (including async CSV), health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
-Not run live on their own: `snap_create_creative` and `snap_create_ad` (they ran inside the influencer flow), a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, and a customer-list upload of real data.
+Verified on the maintainer's own ad account. Anything not listed here is covered by mocked tests only: try it with `SNAP_READ_ONLY=1` on your account first.
+
+**After the safety layer (November 2026):**
+- Connection and settings: token refresh, `snap_ping` (shows the limits in force), start-up validation of `.env`.
+- Reads: campaign and ad squad lists across more than one page, finding one campaign among about 2,000 with `name_contains`, ad squad details.
+- Reports: the weekly report's account spend for a full week matched the figure in Ads Manager for the same dates and time zone. Purchases and ROAS use Snap's attribution and can differ from other tools.
+- Previews: enabling a campaign and an ad squad shows what would really start delivering, including an ad squad under a paused campaign, and its daily budget matched Ads Manager.
+- One real write on a throwaway campaign: preview, approval token, rename, read-back verification, audit entries (intent and result), `snap_undo` preview and undo.
+
+**Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
+
+**Not verified live:** the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` and `snap_create_ad` on their own, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
 - A hosted multi-user version (this server runs on your own machine with your own credentials).
