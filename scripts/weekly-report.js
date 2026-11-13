@@ -68,7 +68,7 @@ for (const i of review.items.slice(0, 5)) L.push(`  - ${i.name.slice(0, 50)}: ${
 L.push("", "## Pixel", `- Top-priority issues: ${pixel.top_priority_issues.length ? pixel.top_priority_issues.join("; ") : "none"}`, `- Spending use cases: ${pixel.spending_use_cases.map((u) => `${u.use_case}:${u.status}`).join(", ")}`, "");
 const dir = join(ROOT, "exports");
 mkdirSync(dir, { recursive: true });
-const file = join(dir, `weekly-${endDate}.md`);
+const file = join(dir, `weekly-${String(acct ?? "account").slice(0, 8)}-${endDate}.md`); // one file per account and week
 writeFileSync(file, L.join("\n"));
 console.log(`Report saved: ${file}`);
 console.log(L.slice(0, 12).join("\n"));

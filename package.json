@@ -43,6 +43,7 @@
     "ARCHITECTURE.md",
     "SECURITY.md",
     "LICENSE",
-    ".env.example"
+    ".env.example",
+    "CHANGELOG.md"
   ]
 }

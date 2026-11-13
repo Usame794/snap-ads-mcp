@@ -62,7 +62,9 @@ export function registerTools(server, client, env = process.env) {
   const policy = loadPolicy(env);
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
   const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
-  const logFile = env.SNAP_LOG_FILE || LOG_FILE;
+  // One change log per settings file: with SNAP_ENV_FILE (one file per ad account) the log sits next to it, so 24-hour limits,
+  // undo and the audit trail of two accounts never mix. SNAP_LOG_FILE overrides; without either, changes.log.jsonl.
+  const logFile = env.SNAP_LOG_FILE || (env.SNAP_ENV_FILE ? `${env.SNAP_ENV_FILE}.log.jsonl` : LOG_FILE);
   const approvals = new ApprovalStore({ ttlMs: policy.approvalTtlSeconds * 1000, repeatWindowMs: policy.repeatWindowSeconds * 1000 });
   const ownership = new Ownership(client);
   const history = (entityId, field) => windowStartMicro(logFile, entityId, field);

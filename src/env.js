@@ -4,8 +4,11 @@ import { dirname, join } from "node:path";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+// The settings file in use: SNAP_ENV_FILE when set (one file per ad account), otherwise .env in the project folder.
+export const envFile = () => process.env.SNAP_ENV_FILE || join(ROOT, ".env");
+
 // Minimal .env loader so the server needs no extra dependency.
-export function loadEnv(file = process.env.SNAP_ENV_FILE || join(ROOT, ".env"), { override = false } = {}) {
+export function loadEnv(file = envFile(), { override = false } = {}) {
   try {
     for (const line of readFileSync(file, "utf8").split("\n")) {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
@@ -17,8 +20,9 @@ export function loadEnv(file = process.env.SNAP_ENV_FILE || join(ROOT, ".env"), 
   }
 }
 
-// Writes or replaces KEY=value in the .env file without printing the value.
-export function setEnvValue(key, value, file = join(ROOT, ".env")) {
+// Writes or replaces KEY=value in the settings file in use (see envFile) without printing the value. With SNAP_ENV_FILE set,
+// authorizing a second account writes that account's file and never touches the first one.
+export function setEnvValue(key, value, file = envFile()) {
   let text = "";
   try {
     text = readFileSync(file, "utf8");

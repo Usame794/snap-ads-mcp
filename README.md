@@ -147,6 +147,26 @@ Use the absolute path to `node` as `command` if the app cannot find it. The serv
 
 **ChatGPT**: ChatGPT connects to *remote* MCP servers (an https URL) through its connectors / developer mode, not to local stdio programs. This server is local only, so it cannot be added to ChatGPT as it is. Doing that would need a hosted version with per-user OAuth and encrypted token storage (see "Not built"). Do not expose this server publicly as it is: it can change real ad campaigns. Other desktop MCP clients that launch local stdio servers (Cursor, VS Code, Cline) work with the same `command` and `args` as above.
 
+## Several ad accounts
+Run one server per ad account, each with its own settings file. Each server only touches its own account, and keeps its own change log (`<settings file>.log.jsonl`), so limits, undo and the audit trail never mix.
+
+1. Copy your settings: `cp .env .env.account2`. In `.env.account2`, set that account's `SNAP_AD_ACCOUNT_ID`, `SNAP_PIXEL_ID`, `SNAP_BRAND_PROFILE_ID` and its own limits. Every `.env*` file except `.env.example` is git-ignored.
+2. If that account belongs to another Snapchat login, authorize it into its own file (same steps as "Setup", with the variable in front): `SNAP_ENV_FILE=.env.account2 node scripts/get-refresh-token.js`, then `SNAP_ENV_FILE=.env.account2 node scripts/check.js`. If the same login can see both accounts, the copied credentials already work.
+3. Register a second server with an absolute path to the file:
+   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/snap-ads-mcp/.env.account2" snap-ads-2 -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`
+4. Start with `SNAP_READ_ONLY=1` in the new file and check `snap_ping` shows the right account.
+
+Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `node scripts/...` command.
+
+## Weekly report on a schedule
+`npm run weekly-report` writes `exports/weekly-<account>-<date>.md` (read-only; nothing is changed in the account). To run it every Sunday at 09:30 on macOS or Linux, add a line with `crontab -e`, using the full path of `node` (`which node`):
+
+```
+30 9 * * 0 cd "/ABSOLUTE/PATH/TO/snap-ads-mcp" && /full/path/to/node scripts/weekly-report.js >> "$HOME/snap-weekly.log" 2>&1
+```
+
+The computer must be awake at that time. Set `SNAP_REPORT_UTC_OFFSET` so the week starts at your local midnight. For a second account add `SNAP_ENV_FILE=.env.account2` before `/full/path/to/node`.
+
 ## Verified live (against the real Snapchat API)
 Verified on the maintainer's own ad account. Anything not listed here is covered by mocked tests only: try it with `SNAP_READ_ONLY=1` on your account first.
 
