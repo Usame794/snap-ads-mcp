@@ -12,12 +12,12 @@ try {
   // Safety settings are validated before anything else. An invalid value stops the server instead of disabling a limit.
   policy = loadPolicy(process.env);
 } catch (e) {
-  process.stderr.write(`[snap-ads-mcp] ${e.message}\n`);
+  process.stderr.write(`[snapchat-ads-mcp] ${e.message}\n`);
   process.exit(1);
 }
 // Snapshot of the non-secret settings taken at startup. Later edits to .env do not change limits or the target account.
 const settings = { ...process.env };
-const server = new McpServer({ name: "snap-ads-mcp", version: "0.2.0" });
+const server = new McpServer({ name: "snapchat-ads-mcp", version: "0.2.0" });
 // Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
 const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
 registerTools(server, client, settings);

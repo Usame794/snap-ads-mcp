@@ -226,7 +226,7 @@ export async function executeChange({ client, prepared, logFile, logExtra }) {
     logChange({ entity, id, name: current.name, change: summary, verified, patch, before, after: afterState, ...(verifyError ? { verify_error: verifyError } : {}), ...(logExtra ?? {}) }, logFile);
   } catch (e) {
     logError = String(e.code ?? e.message);
-    process.stderr.write(`[snap-ads-mcp] CHANGE LOG WRITE FAILED after applying "${summary}" to ${label}: ${logError}\n`);
+    process.stderr.write(`[snapchat-ads-mcp] CHANGE LOG WRITE FAILED after applying "${summary}" to ${label}: ${logError}\n`);
   }
   const warnings = [];
   if (verifyError) warnings.push(`The update was accepted by Snap but reading it back failed (${verifyError}). Treat it as APPLIED and check the item before doing anything else.`);
