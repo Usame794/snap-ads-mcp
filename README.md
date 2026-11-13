@@ -1,4 +1,4 @@
-# snap-ads-mcp
+# Snapchat Ads MCP
 
 A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude Desktop and other MCP clients) work with **your own** Snapchat ad account: read performance, audit campaigns, and make careful, reviewable changes. It also turns creators' **ad codes** into paused ads.
 
@@ -122,23 +122,23 @@ Each user runs this server locally with their own OAuth app and their own ad acc
 2. Copy `.env.example` to `.env`, fill in `SNAP_CLIENT_ID` and `SNAP_REDIRECT_URI`.
 3. Save the secret from your clipboard: `node scripts/save-secret.js` (reads the clipboard on macOS, Windows, and Linux with `wl-paste`, `xclip` or `xsel`; it refuses text that does not look like a secret and clears the clipboard). Without a clipboard tool use `node scripts/save-secret.js --stdin`, or add `SNAP_CLIENT_SECRET=...` to `.env` yourself and make the file private (`chmod 600 .env`).
 4. Open this URL in a browser signed in to Snapchat and approve (replace the two values):
-   `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=snap-ads-mcp`
+   `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=snapchat-ads-mcp`
 5. The browser redirects to `...?code=...`. Within a minute or two run: `CODE=THE_CODE node scripts/get-refresh-token.js`. It saves `SNAP_REFRESH_TOKEN` into `.env` and prints nothing secret.
 6. `node scripts/check.js` refreshes the token and tests `/me` and the ad account (read-only).
-7. Register: `claude mcp add --scope user snap-ads -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`, then restart Claude Code.
+7. Register: `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`, then restart Claude Code.
 
 ## Use it from Claude or ChatGPT
 This is a local MCP server (stdio). Credentials stay in your `.env`; the AI app only starts the process.
 
-**Claude Code** (step 7 above): `claude mcp add --scope user snap-ads -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`, then restart. Check with `claude mcp list`.
+**Claude Code** (step 7 above): `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`, then restart. Check with `claude mcp list`.
 
 **Claude Desktop**: open Settings > Developer > Edit Config and add this to `claude_desktop_config.json`, then fully quit and reopen the app:
 ```json
 {
   "mcpServers": {
-    "snap-ads": {
+    "snapchat-ads": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"]
+      "args": ["/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"]
     }
   }
 }
@@ -153,7 +153,7 @@ Run one server per ad account, each with its own settings file. Each server only
 1. Copy your settings: `cp .env .env.account2`. In `.env.account2`, set that account's `SNAP_AD_ACCOUNT_ID`, `SNAP_PIXEL_ID`, `SNAP_BRAND_PROFILE_ID` and its own limits. Every `.env*` file except `.env.example` is git-ignored.
 2. If that account belongs to another Snapchat login, authorize it into its own file (same steps as "Setup", with the variable in front): `SNAP_ENV_FILE=.env.account2 node scripts/get-refresh-token.js`, then `SNAP_ENV_FILE=.env.account2 node scripts/check.js`. If the same login can see both accounts, the copied credentials already work.
 3. Register a second server with an absolute path to the file:
-   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/snap-ads-mcp/.env.account2" snap-ads-2 -- node "/ABSOLUTE/PATH/TO/snap-ads-mcp/src/index.js"`
+   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/snapchat-ads-mcp/.env.account2" snapchat-ads-2 -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`
 4. Start with `SNAP_READ_ONLY=1` in the new file and check `snap_ping` shows the right account.
 
 Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `node scripts/...` command.
@@ -162,7 +162,7 @@ Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `no
 `npm run weekly-report` writes `exports/weekly-<account>-<date>.md` (read-only; nothing is changed in the account). To run it every Sunday at 09:30 on macOS or Linux, add a line with `crontab -e`, using the full path of `node` (`which node`):
 
 ```
-30 9 * * 0 cd "/ABSOLUTE/PATH/TO/snap-ads-mcp" && /full/path/to/node scripts/weekly-report.js >> "$HOME/snap-weekly.log" 2>&1
+30 9 * * 0 cd "/ABSOLUTE/PATH/TO/snapchat-ads-mcp" && /full/path/to/node scripts/weekly-report.js >> "$HOME/snap-weekly.log" 2>&1
 ```
 
 The computer must be awake at that time. Set `SNAP_REPORT_UTC_OFFSET` so the week starts at your local midnight. For a second account add `SNAP_ENV_FILE=.env.account2` before `/full/path/to/node`.
