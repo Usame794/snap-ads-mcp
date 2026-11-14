@@ -10,6 +10,12 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 - **It is not a hosted service.** Services that only accept remote MCP servers (for example ChatGPT connectors) cannot use it as it is. Do not expose it on the internet.
 - **Money limits are in your account's currency.** Defaults (`SNAP_MAX_DAILY_BUDGET=1000`, `SNAP_MAX_BID=50`) are deliberately conservative; set your own in `.env`.
 
+## Snap's terms and data
+- This project is **not** Snap's official Ads MCP server and is not endorsed by Snap Inc. "Snapchat" is a trademark of Snap Inc.; it is used here only to say which API this tool works with.
+- Using the Snapchat Marketing API means accepting Snap's Developer Terms and [Business Tools Terms](https://snap.com/terms/snap-business-tools). Read them yourself; they include duties on how long Snap data may be kept and how it must be protected.
+- This server keeps data only on your machine: the change log (`changes.log.jsonl` or `<settings file>.log.jsonl`) and anything you export to `exports/`. You are responsible for keeping and deleting those files in line with Snap's terms.
+- Data that comes back from the API (names, review reasons) is shown to your AI assistant. Treat it as untrusted input, and keep your client's approval prompt on for write tools.
+
 ## Quick start
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
 2. Create a Snapchat OAuth app and connect it to your account: follow **Setup (one time)** below (about 10 minutes).
