@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 (2026-11-14)
+
+- Settings files: when a key appears twice, the last line now wins (as in dotenv), so a line added at the end, such as `SNAP_READ_ONLY=1`, takes effect. Saving a secret or token replaces every copy of that key, so an older duplicate can never win.
+- README: the second-account `claude mcp add` command had the server name after `-e`, which Claude Code rejects. Fixed, and it now starts the second account read-only with `-e SNAP_READ_ONLY=1`.
+
 ## 0.4.0 (2026-11-14)
 
 - Install from npm: `npx -y ads-mcp-for-snapchat` starts the server. `init`, `where`, `save-secret`, `auth`, `check` and `weekly-report` replace `node scripts/...` for installed copies; `help` lists them.

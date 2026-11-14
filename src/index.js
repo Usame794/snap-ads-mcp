@@ -17,7 +17,7 @@ try {
 }
 // Snapshot of the non-secret settings taken at startup. Later edits to .env do not change limits or the target account.
 const settings = { ...process.env };
-const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.4.0" });
+const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.4.1" });
 // Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
 const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
 registerTools(server, client, settings);
