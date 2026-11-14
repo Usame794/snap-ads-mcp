@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1 (2026-11-14)
+
+Fixes from a full code review, and a note on Snap's terms.
+
+- `snap_undo` ignores list order and computed fields, so a targeting undo is no longer refused when Snap returns lists in another order.
+- A damaged change log is reported instead of looking empty; `snap_undo` refuses rather than saying there is nothing to undo.
+- The change log is parsed once per change of the file instead of once per item of a bulk edit; the in-memory copy keeps only the last 25 hours.
+- Media uploads get a fresh token once on 401, like other requests.
+- The weekly report names a missing `SNAP_AD_ACCOUNT_ID`.
+- A confirm after the approval expired says "expired" instead of "unknown token".
+- The async report download only follows a public https link.
+- README: this is not Snap's official Ads MCP server; Snap's terms; which local files hold Snap data.
+
 ## 0.2.0 (2026-11-13)
 
 First public release.
