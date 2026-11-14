@@ -23,9 +23,27 @@ export async function asyncReportStatus(client, { entity, id, report_run_id }) {
   return { status: r.async_status ?? r.status, download_url: r.result ?? r.download_link ?? null, raw_keys: r.async_status ? undefined : Object.keys(r) };
 }
 
+// The download link comes from an API response. Only a public https address is followed: no plain http, no localhost,
+// no IP literals, no internal names.
+export function checkDownloadUrl(raw) {
+  let u;
+  try {
+    u = new URL(String(raw));
+  } catch {
+    throw new Error("The report download link from Snap is not a valid URL; not downloading.");
+  }
+  const host = u.hostname.toLowerCase();
+  const ipLiteral = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || host.startsWith("[");
+  if (u.protocol !== "https:" || ipLiteral || host === "localhost" || !host.includes(".") || /\.(local|internal|localhost)$/.test(host)) {
+    throw new Error("The report download link from Snap is not a public https address; not downloading.");
+  }
+  return u;
+}
+
 export async function downloadAsyncReport(client, { entity, id, report_run_id, fileName, fetchImpl = fetch, dir = join(ROOT, "exports") }) {
   const st = await asyncReportStatus(client, { entity, id, report_run_id });
   if (st.status !== "COMPLETED" || !st.download_url) return { downloaded: false, status: st.status, note: "Not ready yet. Check again in a minute." };
+  checkDownloadUrl(st.download_url);
   const res = await fetchImpl(st.download_url);
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
   const text = await res.text();

@@ -3,7 +3,8 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "./env.js";
 import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
-import { remember } from "./audit-log.js";
+import { readLogStrict, remember } from "./audit-log.js";
+import { stabilizeState } from "./approval.js";
 
 export const LOG_FILE = join(ROOT, "changes.log.jsonl");
 
@@ -177,12 +178,27 @@ export function logChange(entry, file = LOG_FILE) {
   appendFileSync(file, JSON.stringify(record) + "\n", { mode: 0o600 });
 }
 
+// For display: the last `limit` records. A missing log is empty; damaged lines are skipped AND reported, never hidden.
 export function readLog(limit = 20, file = LOG_FILE) {
+  let text;
   try {
-    return readFileSync(file, "utf8").trim().split("\n").filter(Boolean).slice(-limit).map((l) => JSON.parse(l));
-  } catch {
-    return [];
+    text = readFileSync(file, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return [];
+    throw new Error(`Change log cannot be read (${e.code ?? e.message})`);
   }
+  const out = [];
+  let damaged = 0;
+  for (const line of text.split("\n").filter((l) => l.trim())) {
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+      damaged++;
+    }
+  }
+  const rows = out.slice(-limit);
+  if (damaged) rows.push({ warning: `${damaged} damaged line(s) in the change log were skipped; the file needs a look` });
+  return rows;
 }
 
 // True when everything in `patch` is present in `actual`. Objects: patch keys must match recursively; arrays: every patch
@@ -244,7 +260,8 @@ export async function applyChange({ client, entity, id, plan, confirm, logFile, 
 
 // Undo support: only entries that recorded `before` can be reverted, and only if nothing changed the fields since.
 export function undoableEntries(file = LOG_FILE) {
-  const log = readLog(5000, file);
+  // Strict: a damaged log is an error, not "nothing to undo".
+  const log = readLogStrict(file).slice(-5000);
   const undone = new Set(log.filter((e) => e.undoes).map((e) => e.undoes));
   return log.filter((e) => e.before && e.patch && e.id && e.entity && e.verified !== false && !e.undoes && !undone.has(e.at) && !String(e.change).startsWith("undo:"));
 }
@@ -265,7 +282,9 @@ export function planUndo(entry, current, { force = false, env = process.env, his
   if (!force) {
     const moved = keys.filter((k) => {
       // Best check: the field must still equal what Snap returned right after this edit.
-      if (entry.after && k in entry.after) return canonical(current[k]) !== canonical(entry.after[k]);
+      // Lists are compared without regard to order and Snap's computed fields are ignored, as for approvals: Snap may return
+      // the same targeting with its lists in another order.
+      if (entry.after && k in entry.after) return canonical(stabilizeState(current[k] ?? null)) !== canonical(stabilizeState(entry.after[k] ?? null));
       // Older log entries have no snapshot: scalars can be compared exactly, objects cannot be trusted.
       if (typeof entry.patch[k] !== "object") return canonical(current[k]) !== canonical(entry.patch[k]);
       return true;
