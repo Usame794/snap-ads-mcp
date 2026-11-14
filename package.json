@@ -1,9 +1,13 @@
 {
   "name": "ads-mcp-for-snapchat",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Unofficial local MCP server for the Snapchat Marketing API: reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
+  "mcpName": "io.github.Usame794/ads-mcp-for-snapchat",
   "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "ads-mcp-for-snapchat": "src/cli.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
@@ -30,15 +34,18 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Usame794/snap-ads-mcp.git"
+    "url": "git+https://github.com/Usame794/ads-mcp-for-snapchat.git"
   },
   "bugs": {
-    "url": "https://github.com/Usame794/snap-ads-mcp/issues"
+    "url": "https://github.com/Usame794/ads-mcp-for-snapchat/issues"
   },
-  "homepage": "https://github.com/Usame794/snap-ads-mcp#readme",
+  "homepage": "https://github.com/Usame794/ads-mcp-for-snapchat#readme",
   "files": [
     "src",
-    "scripts",
+    "scripts/save-secret.js",
+    "scripts/get-refresh-token.js",
+    "scripts/check.js",
+    "scripts/weekly-report.js",
     "README.md",
     "ARCHITECTURE.md",
     "SECURITY.md",
