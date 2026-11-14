@@ -63,6 +63,25 @@ export function buildCompositeCreative({ adAccountId, profileId, name, headline,
   return obj;
 }
 
+// Width and height of a media object, from whichever metadata block Snap filled in; null when Snap gave none.
+export function mediaSize(m) {
+  const md = m?.image_metadata ?? m?.video_metadata ?? {};
+  const w = Number(md.width ?? md.image_width ?? md.video_width);
+  const h = Number(md.height ?? md.image_height ?? md.video_height);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? { width: w, height: h } : null;
+}
+
+// A product tile image must be a square image of at least 120x120 px (Snap refuses other shapes when the tile is created).
+// Returns a warning when the size is unknown, so the preview can say it could not be checked.
+export function checkProductImage(m, label) {
+  if (m.type && m.type !== "IMAGE") throw new Error(`${label} is a ${m.type}; product tiles need an image`);
+  const size = mediaSize(m);
+  if (!size) return `${label}: size unknown, could not check that it is square`;
+  if (size.width !== size.height) throw new Error(`${label} is ${size.width}x${size.height}; product tile images must be square (1:1)`);
+  if (size.width < 120) throw new Error(`${label} is ${size.width}x${size.height}; product tile images must be at least 120x120 px`);
+  return null;
+}
+
 // One product tile of a Collection Ad: an image that opens a web page.
 export function buildCreativeElement({ adAccountId, name, imageMediaId, url, title, description }) {
   const el = { ad_account_id: adAccountId, name: text("product name", name, 375), type: "BUTTON", interaction_type: "WEB_VIEW", button_properties: { button_overlay_media_id: imageMediaId }, web_view_properties: { url: https("product url", url) } };

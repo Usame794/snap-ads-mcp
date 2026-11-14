@@ -141,3 +141,27 @@ test("a failure half way through a Collection reports exactly what was already c
   assert.equal(posts(t, "creatives").length, 0, "no collection creative after the failure");
   await t.close();
 });
+
+test("product tile images must be square images of at least 120x120 (checked in the preview, before anything is sent)", async () => {
+  const w = world();
+  w.media.square = { id: "square", ad_account_id: ACC, media_status: "READY", type: "IMAGE", image_metadata: { width: 600, height: 600 } };
+  w.media.tall = { id: "tall", ad_account_id: ACC, media_status: "READY", type: "IMAGE", image_metadata: { width: 600, height: 1000 } };
+  w.media.tiny = { id: "tiny", ad_account_id: ACC, media_status: "READY", type: "IMAGE", image_metadata: { width: 100, height: 100 } };
+  w.media.vid = { id: "vid", ad_account_id: ACC, media_status: "READY", type: "VIDEO", video_metadata: { width: 720, height: 1280 } };
+  const t = await setup({ world: w });
+  const base = { name: "C", top_snap_media_id: "vid", headline: "H", fallback_url: "https://shop.example.com" };
+  const four = (img) => [1, 2, 3, 4].map((i) => product(i, i === 3 ? img : "square"));
+  assert.match((await t.call("snap_create_collection_creative", { ...base, products: four("tall") })).error, /"Product 3" \(tall\) is 600x1000; product tile images must be square/);
+  assert.match((await t.call("snap_create_collection_creative", { ...base, products: four("tiny") })).error, /at least 120x120/);
+  assert.match((await t.call("snap_create_collection_creative", { ...base, products: four("vid") })).error, /is a VIDEO; product tiles need an image/);
+  assert.equal(t.writes().length, 0, "refused before anything is sent");
+  // a good one: the preview lists the media ids and sizes that the approval is bound to
+  const ok = (await t.call("snap_create_collection_creative", { ...base, products: four("square") })).data;
+  assert.deepEqual(ok.would_create.main_snap, { media_id: "vid", type: "VIDEO", size: "720x1280" });
+  assert.deepEqual(ok.would_create.products.map((p) => [p.image_media_id, p.image_size]), [["square", "600x600"], ["square", "600x600"], ["square", "600x600"], ["square", "600x600"]]);
+  assert.equal(ok.warnings, undefined);
+  // size unknown: allowed, but the preview says it could not be checked
+  const unknown = (await t.call("snap_create_collection_creative", { ...base, products: four("img") })).data;
+  assert.match(unknown.warnings[0], /size unknown, could not check that it is square/);
+  await t.close();
+});
