@@ -1,12 +1,12 @@
 // Planning, guarding and logging of write operations.
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT } from "./env.js";
+import { DATA_DIR } from "./env.js";
 import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
 import { readLogStrict, remember } from "./audit-log.js";
 import { stabilizeState } from "./approval.js";
 
-export const LOG_FILE = join(ROOT, "changes.log.jsonl");
+export const LOG_FILE = join(DATA_DIR, "changes.log.jsonl");
 
 const micro = (n) => Math.round(n * 1_000_000);
 const unmicro = (m) => m / 1_000_000;

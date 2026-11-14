@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (2026-11-14)
+
+- Install from npm: `npx -y ads-mcp-for-snapchat` starts the server. `init`, `where`, `save-secret`, `auth`, `check` and `weekly-report` replace `node scripts/...` for installed copies; `help` lists them.
+- An installed copy keeps its settings, change log and exports in `~/.ads-mcp-for-snapchat` (or `SNAP_HOME`), never inside `node_modules`, so an update cannot erase them. A git checkout works exactly as before.
+- `server.json` for the official MCP Registry (`io.github.Usame794/ads-mcp-for-snapchat`).
+- The repository is now `Usame794/ads-mcp-for-snapchat`. Old links redirect.
+- Verified live on a real account: a COLLECTION ad (paused).
+
 ## 0.3.2 (2026-11-14)
 
 - Collection: product images are checked in the preview: they must be images, square (1:1) and at least 120x120 px. Snap refused 600x1000 images only at confirm time; now the preview says so before anything is sent. When Snap gives no size, the preview warns that the shape could not be checked.

@@ -24,7 +24,19 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 
 In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Find media already in the account with `snap_list_media`, or upload with `snap_upload_media` and wait until `snap_get_media` says READY.
 
-## Quick start
+## Install from npm (no download needed)
+Needs Node 18 or newer. Your settings live in `~/.ads-mcp-for-snapchat/.env`, outside the package, so updates never touch them.
+
+1. `npx -y ads-mcp-for-snapchat init` creates the settings file (private to you). `npx -y ads-mcp-for-snapchat where` prints its path.
+2. Open it, fill in `SNAP_CLIENT_ID`, `SNAP_AD_ACCOUNT_ID`, your limits and market settings, then follow **Setup (one time)** below using these commands instead of `node scripts/...`:
+   - `npx -y ads-mcp-for-snapchat save-secret` (client secret from the clipboard; `--stdin` to paste it instead)
+   - `npx -y ads-mcp-for-snapchat auth THE_CODE` (refresh token)
+   - `npx -y ads-mcp-for-snapchat check` (read-only test)
+3. Register it: `claude mcp add --scope user snapchat-ads -- npx -y ads-mcp-for-snapchat`, then restart Claude Code. For Claude Desktop use `"command": "npx", "args": ["-y", "ads-mcp-for-snapchat"]`.
+
+`npx -y ads-mcp-for-snapchat help` lists every command. For a second ad account, put `SNAP_ENV_FILE=/path/to/.env.account2` in front of any command, and add `-e SNAP_ENV_FILE=/path/to/.env.account2` when registering it (see "Several ad accounts"). It is also listed in the official MCP Registry as `io.github.Usame794/ads-mcp-for-snapchat`.
+
+## Quick start (from source)
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
 2. Create a Snapchat OAuth app and connect it to your account: follow **Setup (one time)** below (about 10 minutes).
 3. Copy the safety and market settings from `.env.example` into `.env` and set **your** limits, `SNAP_DEFAULT_COUNTRY`, `SNAP_ACCOUNT_CURRENCY` and `SNAP_REPORT_UTC_OFFSET`.
@@ -125,6 +137,7 @@ Notes from live use:
 - Codes starting with `#` are for other platforms and are rejected.
 
 ## Scripts
+From an npm install, use `npx -y ads-mcp-for-snapchat check | weekly-report` instead; reports then go to `~/.ads-mcp-for-snapchat/exports/`.
 - `npm run smoke`: live read-only check of credentials, token refresh and the main read paths (exit code 1 on any failure). Run it after changing a secret or updating the server.
 - `npm run weekly-report`: read-only weekly report saved to `exports/weekly-<date>.md` (spend and ROAS vs last week, top campaigns, account health, tired ads, review problems, pixel issues). Optional argument: end date, e.g. `npm run weekly-report -- 2026-10-27`.
 - Reliability: reads retry automatically on rate limits (429), server errors and network errors; writes retry only on 429, so a create or claim is never repeated by accident.
@@ -160,7 +173,7 @@ This is a local MCP server (stdio). Credentials stay in your `.env`; the AI app 
   }
 }
 ```
-Use the absolute path to `node` as `command` if the app cannot find it. The server reads `.env` from its own folder, so no secrets go in this file.
+Use the absolute path to `node` as `command` if the app cannot find it. The server reads `.env` from its own folder (an npm install reads `~/.ads-mcp-for-snapchat/.env`), so no secrets go in this file.
 
 **ChatGPT**: ChatGPT connects to *remote* MCP servers (an https URL) through its connectors / developer mode, not to local stdio programs. This server is local only, so it cannot be added to ChatGPT as it is. Doing that would need a hosted version with per-user OAuth and encrypted token storage (see "Not built"). Do not expose this server publicly as it is: it can change real ad campaigns. Other desktop MCP clients that launch local stdio servers (Cursor, VS Code, Cline) work with the same `command` and `args` as above.
 

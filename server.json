@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Usame794/ads-mcp-for-snapchat",
+  "title": "Ads MCP for Snapchat",
+  "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
+  "repository": {
+    "url": "https://github.com/Usame794/ads-mcp-for-snapchat",
+    "source": "github"
+  },
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "ads-mcp-for-snapchat",
+      "version": "0.4.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SNAP_ENV_FILE",
+          "description": "Path to this ad account's settings file. Default: ~/.ads-mcp-for-snapchat/.env (create it with: npx ads-mcp-for-snapchat init).",
+          "format": "filepath",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

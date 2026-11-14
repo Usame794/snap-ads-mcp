@@ -1,7 +1,7 @@
 // Async (large) reports: start, check, download the CSV.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ROOT } from "./env.js";
+import { DATA_DIR } from "./env.js";
 
 const BASE = { adaccount: "adaccounts", campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
 const DEFAULT_FIELDS = ["impressions", "spend", "swipes", "conversion_purchases", "conversion_purchases_value", "frequency"];
@@ -40,7 +40,7 @@ export function checkDownloadUrl(raw) {
   return u;
 }
 
-export async function downloadAsyncReport(client, { entity, id, report_run_id, fileName, fetchImpl = fetch, dir = join(ROOT, "exports") }) {
+export async function downloadAsyncReport(client, { entity, id, report_run_id, fileName, fetchImpl = fetch, dir = join(DATA_DIR, "exports") }) {
   const st = await asyncReportStatus(client, { entity, id, report_run_id });
   if (st.status !== "COMPLETED" || !st.download_url) return { downloaded: false, status: st.status, note: "Not ready yet. Check again in a minute." };
   checkDownloadUrl(st.download_url);

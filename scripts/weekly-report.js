@@ -3,7 +3,7 @@
 // Usage: node scripts/weekly-report.js [end-date YYYY-MM-DD]   (end date = day after the last day to include; default today in SNAP_REPORT_UTC_OFFSET, UTC when not set)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadEnv, ROOT } from "../src/env.js";
+import { DATA_DIR, loadEnv } from "../src/env.js";
 import { loadPolicy } from "../src/policy.js";
 import { SnapClient } from "../src/snap.js";
 import { healthCheck, pixelHealth, reviewIssues } from "../src/audit.js";
@@ -70,7 +70,7 @@ for (const f of fatigue) { L.push(`- ${f.name.slice(0, 50)}: ${JSON.stringify(f.
 L.push("", "## Ads with review problems (active squads)", `- ${review.shown} ads: ${JSON.stringify(review.by_status)} account-wide non-approved`);
 for (const i of review.items.slice(0, 5)) L.push(`  - ${i.name.slice(0, 50)}: ${String(i.reasons[0] ?? i.review_status).slice(0, 110)}`);
 L.push("", "## Pixel", `- Top-priority issues: ${pixel.top_priority_issues.length ? pixel.top_priority_issues.join("; ") : "none"}`, `- Spending use cases: ${pixel.spending_use_cases.map((u) => `${u.use_case}:${u.status}`).join(", ")}`, "");
-const dir = join(ROOT, "exports");
+const dir = join(DATA_DIR, "exports");
 mkdirSync(dir, { recursive: true });
 const file = join(dir, `weekly-${String(acct ?? "account").slice(0, 8)}-${endDate}.md`); // one file per account and week
 writeFileSync(file, L.join("\n"));
