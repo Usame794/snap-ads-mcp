@@ -192,10 +192,11 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 - Reports: the weekly report's account spend for a full week matched the figure in Ads Manager for the same dates and time zone. Purchases and ROAS use Snap's attribution and can differ from other tools.
 - Previews: enabling a campaign and an ad squad shows what would really start delivering, including an ad squad under a paused campaign, and its daily budget matched Ads Manager.
 - One real write on a throwaway campaign: preview, approval token, rename, read-back verification, audit entries (intent and result), `snap_undo` preview and undo.
+- Story Ads (0.3.0): a Story creative from two existing creatives (account and type checks, fixed order), then `snap_create_ad` choosing ad type STORY, created PAUSED in a paused test ad squad.
 
 **Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 
-**Not verified live:** Story and Collection creatives and SNAP_AD creatives (built from Snap's API reference, mocked tests only), the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` and `snap_create_ad` on their own, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
+**Not verified live:** Collection creatives and SNAP_AD creatives (built from Snap's API reference, mocked tests only), the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` and `snap_create_ad` on their own, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
 - A hosted multi-user version (this server runs on your own machine with your own credentials).
