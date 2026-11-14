@@ -339,7 +339,7 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   const { tools } = await listing.client.listTools();
   const writeTools = tools.filter((x) => x.annotations?.readOnlyHint === false && x.inputSchema.properties.confirm).map((x) => x.name).sort();
   assert.deepEqual(writeTools, Object.keys(calls).sort(), "the table above covers every mutating tool");
-  assert.equal(tools.length, 57);
+  assert.equal(tools.length, 58);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} rejects unknown arguments`);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", `${tool.name} is annotated`);

@@ -22,7 +22,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 - **Story Ad**: create the Snaps first (any of the two above), then `snap_create_story_creative` with their ids in order. Add `preview` (a 3:5 PNG tile, at least 360x600 px, and a headline of up to 55 characters) to also show it in the Stories tab.
 - **Collection Ad**: upload a main image or video and one image per product (at least 120x120 px), then `snap_create_collection_creative` with 4-20 products, each with its own https page.
 
-In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Upload images and videos with `snap_upload_media` and wait until `snap_get_media` says READY.
+In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Find media already in the account with `snap_list_media`, or upload with `snap_upload_media` and wait until `snap_get_media` says READY.
 
 ## Quick start
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
@@ -112,6 +112,7 @@ Existing items above a limit can still be read, lowered and paused, but not rais
 | `snap_claim_ad_code` | claim a creator ad code (one-way, single-use) |
 | `snap_upload_media` | upload a local video/image (up to 1 GB, chunked above 32 MB) to the ad account, not attached to any ad |
 | `snap_create_creative`, `snap_create_ad` | creative from an image or video: WEB_VIEW (swipe-up link) or SNAP_AD (the Snap only); ad from a creative, its type taken from the creative (paused) |
+| `snap_list_media` | images and videos in the account (READY by default), newest first, filter by type and name |
 | `snap_create_story_creative` | Story Ad: 1-20 existing Snaps in a fixed order, with an optional tile for the Stories tab |
 | `snap_create_collection_creative` | Collection Ad: a main image or video with 4-20 product tiles, each opening its own page |
 | `snap_influencer_ad` | the whole influencer flow in one step: claim, wait for media, creative, paused ad |

@@ -338,6 +338,32 @@ export function registerTools(server, client, env = process.env) {
     },
   );
 
+  read(
+    "snap_list_media",
+    {
+      description: "List the images and videos in the ad account (read-only), newest first, to find a media_id for snap_create_creative, snap_create_story_creative or snap_create_collection_creative. By default only READY media; filter by type and name. Reads every page; a note says when the list is cut.",
+      shape: {
+        type: z.enum(["IMAGE", "VIDEO"]).optional(),
+        ready_only: z.boolean().default(true),
+        name_contains: z.string().min(1).max(100).optional(),
+        limit: z.number().int().min(1).max(500).default(50),
+        ad_account_id: id().optional(),
+      },
+    },
+    async ({ type, ready_only, name_contains, limit, ad_account_id }) => {
+      const { items, complete, reason } = await client.listPaged(`/adaccounts/${account(ad_account_id)}/media`, "media");
+      const needle = name_contains?.toLowerCase();
+      const rows = items
+        .filter((m) => (!type || m.type === type) && (!ready_only || m.media_status === "READY") && (!needle || String(m.name ?? "").toLowerCase().includes(needle)))
+        .sort((a, b) => String(b.created_at ?? b.updated_at ?? "").localeCompare(String(a.created_at ?? a.updated_at ?? "")))
+        .map((m) => ({ id: m.id, name: m.name, type: m.type, media_status: m.media_status, duration_in_seconds: m.duration_in_seconds, video_metadata: m.video_metadata, image_metadata: m.image_metadata, created_at: m.created_at }));
+      const notes = [];
+      if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more media exist that are not included.`);
+      if (rows.length > limit) notes.push(`${rows.length} media match; showing the newest ${limit}. Raise limit (max 500) or narrow the filters.`);
+      return new ListResult(rows.slice(0, limit), notes);
+    },
+  );
+
   read("snap_get_media", { description: "Get a media asset and its processing status (read-only). Use after claiming an ad code.", shape: { media_id: id() } }, async ({ media_id }) => {
     const m = await getMedia(client, media_id);
     return { id: m.id, type: m.type, media_status: m.media_status, duration_in_seconds: m.duration_in_seconds, content_source_type: m.content_source_type, video_metadata: m.video_metadata };
