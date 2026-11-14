@@ -11,12 +11,12 @@ import { SnapClient } from "../../src/snap.js";
 import { registerTools } from "../../src/tools.js";
 
 export const ACC = "acc-1";
-const KIND = { campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media" };
+const KIND = { campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media", creative_elements: "creative_element", interaction_zones: "interaction_zone" };
 const PARENT_KEY = { adsquads: "campaign_id", ads: "ad_squad_id" };
 
 // world = { campaigns: {id: obj}, adsquads: {...}, ads: {...}, creatives: {...}, segments: {...}, media: {...}, currency }
 export function fakeSnap(world = {}) {
-  const db = { campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, currency: "USD", ...world };
+  const db = { campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, creative_elements: {}, interaction_zones: {}, currency: "USD", ...world };
   const calls = [];
   let seq = 0;
   const hooks = { failGetAfterPut: false, failNextWrite: null };

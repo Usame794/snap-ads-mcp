@@ -23,6 +23,7 @@ import { ApprovalStore, digest, fingerprintOf, stabilizeState } from "./approval
 import { addedDailyBudgetInWindow, auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
 import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
+import { adTypeFor, buildCollectionCreative, buildCompositeCreative, buildCreativeElement, buildInteractionZone, buildPreviewCreative, buildSnapAdCreative, STORY_PART_TYPES, WEB_VIEW_CTAS } from "./formats.js";
 
 const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 // A list result keeps its plain array shape; anything the reader must know (cut off, more than shown) goes in a second block.
@@ -619,18 +620,29 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_create_creative",
     {
-      description: "Create a WEB_VIEW creative from a READY media asset (for example a claimed creator post). Previews unless confirm=true.",
-      shape: { media_id: id(), name: z.string(), headline: z.string().describe("Max 34 characters"), url: z.string().describe("https:// landing page"), call_to_action: z.string().default("SHOP_NOW"), profile_id: id().optional() },
+      description: "Create a creative from a READY image or video: WEB_VIEW (default; swipe-up opens a web page) or SNAP_AD (the Snap only, no link and no call to action). Use the result in snap_create_ad, or as a part of a Story with snap_create_story_creative. Previews unless confirm=true.",
+      shape: {
+        media_id: id(),
+        name: z.string(),
+        headline: z.string().describe("Max 34 characters"),
+        creative_type: z.enum(["WEB_VIEW", "SNAP_AD"]).default("WEB_VIEW"),
+        url: z.string().optional().describe("https:// landing page (required for WEB_VIEW, not allowed for SNAP_AD)"),
+        call_to_action: z.enum(WEB_VIEW_CTAS).default("SHOP_NOW").describe("WEB_VIEW only"),
+        profile_id: id().optional(),
+      },
       repeatGuard: true,
     },
-    async ({ media_id, name, headline, url, call_to_action, profile_id }) => {
-      const obj = buildCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline, callToAction: call_to_action, url });
+    async ({ media_id, name, headline, creative_type, url, call_to_action, profile_id }) => {
+      if (creative_type === "SNAP_AD" && url) throw new Error("A SNAP_AD creative has no link; leave url out or use creative_type WEB_VIEW");
+      const obj = creative_type === "SNAP_AD"
+        ? buildSnapAdCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline })
+        : buildCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline, callToAction: call_to_action, url });
       const media = await getMedia(client, media_id);
       if (media.media_status !== "READY") throw new Error(`Media is ${media.media_status}, not READY yet`);
       return {
         targetIds: [media_id],
         state: { media_status: media.media_status },
-        preview: { applied: false, dry_run: true, would_create: { name: obj.name, headline: obj.headline, cta: obj.call_to_action, url: obj.web_view_properties.url, media: media_id }, note: "Nothing created. Re-run with confirm=true." },
+        preview: { applied: false, dry_run: true, would_create: { type: obj.type, name: obj.name, headline: obj.headline, cta: obj.call_to_action, url: obj.web_view_properties?.url, media: media_id, media_type: media.type }, note: "Nothing created. Re-run with confirm=true." },
         execute: async () => {
           const created = await client.createEntity("creative", obj);
           return { applied: true, creative_id: created.id, name: created.name };
@@ -642,18 +654,123 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_create_ad",
     {
-      description: "Create an ad from an existing creative inside an ad squad. Always created PAUSED. Previews unless confirm=true.",
-      shape: { creative_id: id(), adsquad_id: id(), name: z.string(), ad_type: z.string().default("REMOTE_WEBPAGE") },
+      description: "Create an ad from an existing creative inside an ad squad. The ad type follows the creative (WEB_VIEW -> REMOTE_WEBPAGE, SNAP_AD -> SNAP_AD, COMPOSITE Story -> STORY, COLLECTION -> COLLECTION); give ad_type only for other formats. Always created PAUSED. Previews unless confirm=true.",
+      shape: { creative_id: id(), adsquad_id: id(), name: z.string(), ad_type: z.string().optional().describe("Normally left out: it is taken from the creative") },
       repeatGuard: true,
     },
     async ({ creative_id, adsquad_id, name, ad_type }) => {
       const squad = await client.getEntity("adsquad", adsquad_id);
-      const obj = buildAd({ adSquadId: adsquad_id, creativeId: creative_id, name, type: ad_type });
+      const creative = await client.getEntity("creative", creative_id);
+      const obj = buildAd({ adSquadId: adsquad_id, creativeId: creative_id, name, type: adTypeFor(creative.type, ad_type) });
       return {
-        targets: [{ entity: "adsquad", obj: squad }],
-        state: { squad },
-        preview: { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, type: obj.type, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
+        targets: [{ entity: "adsquad", obj: squad }, { entity: "creative", obj: creative }],
+        state: { squad, creative },
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, creative: creative.name, creative_type: creative.type, type: obj.type, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
         execute: async () => ({ applied: true, ad_id: (await client.createEntity("ad", obj)).id, status: "PAUSED" }),
+      };
+    },
+  );
+
+  write(
+    "snap_create_story_creative",
+    {
+      description:
+        "Create a Story Ad creative: 1-20 existing creatives (SNAP_AD, WEB_VIEW, APP_INSTALL or DEEP_LINK) shown in the given order, which cannot change later. With `preview` it also creates the tile shown in the Stories tab (a 3:5 PNG image, a headline of up to 55 characters, optional logo); without it the Story only runs between other stories. Creates creatives only, nothing delivers; use the returned creative with snap_create_ad (ad type STORY). Previews unless confirm=true.",
+      shape: {
+        name: z.string(),
+        headline: z.string().describe("Max 34 characters"),
+        creative_ids: z.array(id()).min(1).max(20).describe("The Snaps of the Story, in order"),
+        preview: z.object({ preview_media_id: id(), preview_headline: z.string().describe("Max 55 characters"), logo_media_id: id().optional() }).strict().optional(),
+        profile_id: id().optional(),
+      },
+      repeatGuard: true,
+    },
+    async ({ name, headline, creative_ids, preview, profile_id }) => {
+      const adAccountId = account();
+      const profileId = brandProfile(profile_id);
+      buildCompositeCreative({ adAccountId, profileId, name, headline, creativeIds: creative_ids });
+      const parts = [];
+      for (const cid of creative_ids) {
+        const c = await client.getEntity("creative", cid);
+        if (!STORY_PART_TYPES.includes(c.type)) throw new Error(`Creative "${c.name}" is ${c.type}; a Story can only contain ${STORY_PART_TYPES.join(", ")}`);
+        parts.push(c);
+      }
+      const media = {};
+      if (preview) {
+        buildPreviewCreative({ adAccountId, name: `${name} - preview`, previewMediaId: preview.preview_media_id, previewHeadline: preview.preview_headline, logoMediaId: preview.logo_media_id });
+        for (const mid of [preview.preview_media_id, preview.logo_media_id].filter(Boolean)) {
+          const m = await getMedia(client, mid);
+          if (m.media_status !== "READY") throw new Error(`Media ${mid} is ${m.media_status}, not READY yet`);
+          media[mid] = m.media_status;
+        }
+      }
+      return {
+        targets: parts.map((obj) => ({ entity: "creative", obj })),
+        state: { parts, media },
+        preview: { applied: false, dry_run: true, would_create: { story: name, headline: headline.trim(), snaps_in_order: parts.map((p) => ({ id: p.id, name: p.name, type: p.type })), preview_tile: preview ? { headline: preview.preview_headline.trim(), logo: Boolean(preview.logo_media_id) } : "none (runs only between other stories)" }, note: "Nothing created. The order of the Snaps cannot be changed later. Re-run with confirm=true." },
+        execute: async () => {
+          const done = {};
+          try {
+            if (preview) {
+              done.preview_creative_id = (await client.createEntity("creative", buildPreviewCreative({ adAccountId, name: `${name} - preview`, previewMediaId: preview.preview_media_id, previewHeadline: preview.preview_headline, logoMediaId: preview.logo_media_id }))).id;
+            }
+            done.story_creative_id = (await client.createEntity("creative", buildCompositeCreative({ adAccountId, profileId, name, headline, creativeIds: creative_ids, previewCreativeId: done.preview_creative_id }))).id;
+          } catch (e) {
+            throw new Error(`${e.message}. Created so far (creatives do not deliver by themselves): ${JSON.stringify(done)}`);
+          }
+          return { applied: true, ...done, next: "Use story_creative_id with snap_create_ad (ad type STORY); the ad is created PAUSED." };
+        },
+      };
+    },
+  );
+
+  write(
+    "snap_create_collection_creative",
+    {
+      description:
+        "Create a Collection Ad creative: a main image or video plus 4-20 product tiles, each an image that opens its own https page, and a fallback page for a swipe on the main Snap. Creates the product tiles, the row that holds them and the COLLECTION creative; nothing delivers. Use the returned creative with snap_create_ad (ad type COLLECTION). Previews unless confirm=true.",
+      shape: {
+        name: z.string(),
+        top_snap_media_id: id().describe("The main image or video (READY)"),
+        headline: z.string().describe("Max 34 characters"),
+        fallback_url: z.string().describe("https:// page opened by a swipe on the main Snap"),
+        button_label: z.enum(WEB_VIEW_CTAS).default("SHOP_NOW").describe("Label of the product row"),
+        products: z
+          .array(z.object({ name: z.string(), image_media_id: id().describe("Product tile image (READY), at least 120x120 px"), url: z.string().describe("https:// product page"), title: z.string().optional(), description: z.string().optional() }).strict())
+          .min(4)
+          .max(20),
+        profile_id: id().optional(),
+      },
+      repeatGuard: true,
+    },
+    async ({ name, top_snap_media_id, headline, fallback_url, button_label, products, profile_id }) => {
+      const adAccountId = account();
+      const profileId = brandProfile(profile_id);
+      const elements = products.map((p) => buildCreativeElement({ adAccountId, name: p.name, imageMediaId: p.image_media_id, url: p.url, title: p.title, description: p.description }));
+      buildInteractionZone({ adAccountId, name: `${name} - products`, headline: button_label, creativeElementIds: products.map((_, i) => `placeholder-${i}`) });
+      buildCollectionCreative({ adAccountId, profileId, name, topSnapMediaId: top_snap_media_id, headline, interactionZoneId: "placeholder", fallbackUrl: fallback_url });
+      const media = {};
+      for (const mid of [top_snap_media_id, ...products.map((p) => p.image_media_id)]) {
+        if (media[mid]) continue;
+        const m = await getMedia(client, mid);
+        if (m.media_status !== "READY") throw new Error(`Media ${mid} is ${m.media_status}, not READY yet`);
+        media[mid] = m.media_status;
+      }
+      return {
+        targetIds: Object.keys(media),
+        state: { media },
+        preview: { applied: false, dry_run: true, would_create: { collection: name, headline: headline.trim(), button_label, fallback_url, products: products.map((p) => ({ name: p.name, url: p.url })) }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const done = { product_tile_ids: [] };
+          try {
+            for (const el of elements) done.product_tile_ids.push((await client.createEntity("creative_element", el)).id);
+            done.interaction_zone_id = (await client.createEntity("interaction_zone", buildInteractionZone({ adAccountId, name: `${name} - products`, headline: button_label, creativeElementIds: done.product_tile_ids }))).id;
+            done.collection_creative_id = (await client.createEntity("creative", buildCollectionCreative({ adAccountId, profileId, name, topSnapMediaId: top_snap_media_id, headline, interactionZoneId: done.interaction_zone_id, fallbackUrl: fallback_url }))).id;
+          } catch (e) {
+            throw new Error(`${e.message}. Created so far (none of it delivers by itself): ${JSON.stringify(done)}`);
+          }
+          return { applied: true, ...done, next: "Use collection_creative_id with snap_create_ad (ad type COLLECTION); the ad is created PAUSED." };
+        },
       };
     },
   );

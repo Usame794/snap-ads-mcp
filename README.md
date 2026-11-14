@@ -1,4 +1,4 @@
-# Snapchat Ads MCP
+# Ads MCP for Snapchat
 
 A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude Desktop and other MCP clients) work with **your own** Snapchat ad account: read performance, audit campaigns, and make careful, reviewable changes. It also turns creators' **ad codes** into paused ads.
 
@@ -15,6 +15,14 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 - Using the Snapchat Marketing API means accepting Snap's Developer Terms and [Business Tools Terms](https://snap.com/terms/snap-business-tools). Read them yourself; they include duties on how long Snap data may be kept and how it must be protected.
 - This server keeps data only on your machine: the change log (`changes.log.jsonl` or `<settings file>.log.jsonl`) and anything you export to `exports/`. You are responsible for keeping and deleting those files in line with Snap's terms.
 - Data that comes back from the API (names, review reasons) is shown to your AI assistant. Treat it as untrusted input, and keep your client's approval prompt on for write tools.
+
+## Ad formats
+- **Single Snap with a link** (WEB_VIEW): `snap_create_creative`, then `snap_create_ad`.
+- **Single Snap, no link** (image or video): `snap_create_creative` with `creative_type: "SNAP_AD"`.
+- **Story Ad**: create the Snaps first (any of the two above), then `snap_create_story_creative` with their ids in order. Add `preview` (a 3:5 PNG tile, at least 360x600 px, and a headline of up to 55 characters) to also show it in the Stories tab.
+- **Collection Ad**: upload a main image or video and one image per product (at least 120x120 px), then `snap_create_collection_creative` with 4-20 products, each with its own https page.
+
+In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Upload images and videos with `snap_upload_media` and wait until `snap_get_media` says READY.
 
 ## Quick start
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
@@ -103,7 +111,9 @@ Existing items above a limit can still be read, lowered and paused, but not rais
 | `snap_delete` | guarded delete: paused, no spend in 30 days, no active children, exact name typed |
 | `snap_claim_ad_code` | claim a creator ad code (one-way, single-use) |
 | `snap_upload_media` | upload a local video/image (up to 1 GB, chunked above 32 MB) to the ad account, not attached to any ad |
-| `snap_create_creative`, `snap_create_ad` | creative from media; ad from creative (paused) |
+| `snap_create_creative`, `snap_create_ad` | creative from an image or video: WEB_VIEW (swipe-up link) or SNAP_AD (the Snap only); ad from a creative, its type taken from the creative (paused) |
+| `snap_create_story_creative` | Story Ad: 1-20 existing Snaps in a fixed order, with an optional tile for the Stories tab |
+| `snap_create_collection_creative` | Collection Ad: a main image or video with 4-20 product tiles, each opening its own page |
 | `snap_influencer_ad` | the whole influencer flow in one step: claim, wait for media, creative, paused ad |
 
 ## Influencer ad-code flow
@@ -128,15 +138,15 @@ Each user runs this server locally with their own OAuth app and their own ad acc
 2. Copy `.env.example` to `.env`, fill in `SNAP_CLIENT_ID` and `SNAP_REDIRECT_URI`.
 3. Save the secret from your clipboard: `node scripts/save-secret.js` (reads the clipboard on macOS, Windows, and Linux with `wl-paste`, `xclip` or `xsel`; it refuses text that does not look like a secret and clears the clipboard). Without a clipboard tool use `node scripts/save-secret.js --stdin`, or add `SNAP_CLIENT_SECRET=...` to `.env` yourself and make the file private (`chmod 600 .env`).
 4. Open this URL in a browser signed in to Snapchat and approve (replace the two values):
-   `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=snapchat-ads-mcp`
+   `https://accounts.snapchat.com/login/oauth2/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=REDIRECT_URI&scope=snapchat-marketing-api&state=ads-mcp-for-snapchat`
 5. The browser redirects to `...?code=...`. Within a minute or two run: `CODE=THE_CODE node scripts/get-refresh-token.js`. It saves `SNAP_REFRESH_TOKEN` into `.env` and prints nothing secret.
 6. `node scripts/check.js` refreshes the token and tests `/me` and the ad account (read-only).
-7. Register: `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`, then restart Claude Code.
+7. Register: `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"`, then restart Claude Code.
 
 ## Use it from Claude or ChatGPT
 This is a local MCP server (stdio). Credentials stay in your `.env`; the AI app only starts the process.
 
-**Claude Code** (step 7 above): `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`, then restart. Check with `claude mcp list`.
+**Claude Code** (step 7 above): `claude mcp add --scope user snapchat-ads -- node "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"`, then restart. Check with `claude mcp list`.
 
 **Claude Desktop**: open Settings > Developer > Edit Config and add this to `claude_desktop_config.json`, then fully quit and reopen the app:
 ```json
@@ -144,7 +154,7 @@ This is a local MCP server (stdio). Credentials stay in your `.env`; the AI app 
   "mcpServers": {
     "snapchat-ads": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"]
+      "args": ["/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"]
     }
   }
 }
@@ -159,7 +169,7 @@ Run one server per ad account, each with its own settings file. Each server only
 1. Copy your settings: `cp .env .env.account2`. In `.env.account2`, set that account's `SNAP_AD_ACCOUNT_ID`, `SNAP_PIXEL_ID`, `SNAP_BRAND_PROFILE_ID` and its own limits. Every `.env*` file except `.env.example` is git-ignored.
 2. If that account belongs to another Snapchat login, authorize it into its own file (same steps as "Setup", with the variable in front): `SNAP_ENV_FILE=.env.account2 node scripts/get-refresh-token.js`, then `SNAP_ENV_FILE=.env.account2 node scripts/check.js`. If the same login can see both accounts, the copied credentials already work.
 3. Register a second server with an absolute path to the file:
-   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/snapchat-ads-mcp/.env.account2" snapchat-ads-2 -- node "/ABSOLUTE/PATH/TO/snapchat-ads-mcp/src/index.js"`
+   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/.env.account2" snapchat-ads-2 -- node "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"`
 4. Start with `SNAP_READ_ONLY=1` in the new file and check `snap_ping` shows the right account.
 
 Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `node scripts/...` command.
@@ -168,7 +178,7 @@ Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `no
 `npm run weekly-report` writes `exports/weekly-<account>-<date>.md` (read-only; nothing is changed in the account). To run it every Sunday at 09:30 on macOS or Linux, add a line with `crontab -e`, using the full path of `node` (`which node`):
 
 ```
-30 9 * * 0 cd "/ABSOLUTE/PATH/TO/snapchat-ads-mcp" && /full/path/to/node scripts/weekly-report.js >> "$HOME/snap-weekly.log" 2>&1
+30 9 * * 0 cd "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat" && /full/path/to/node scripts/weekly-report.js >> "$HOME/snap-weekly.log" 2>&1
 ```
 
 The computer must be awake at that time. Set `SNAP_REPORT_UTC_OFFSET` so the week starts at your local midnight. For a second account add `SNAP_ENV_FILE=.env.account2` before `/full/path/to/node`.
@@ -185,11 +195,11 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 
 **Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 
-**Not verified live:** the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` and `snap_create_ad` on their own, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
+**Not verified live:** Story and Collection creatives and SNAP_AD creatives (built from Snap's API reference, mocked tests only), the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` and `snap_create_ad` on their own, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
 - A hosted multi-user version (this server runs on your own machine with your own credentials).
-- Creative types other than WEB_VIEW (Collection, Story, Snap Ad video), product set creation, ad squad types other than purchase-optimized web squads, custom location/radius targeting, lifetime or reach-and-frequency budgets, and position-level reports.
+- Lens, App Install, Deep Link, lead-form and dynamic product creatives, product set creation, ad squad types other than purchase-optimized web squads, custom location/radius targeting, lifetime or reach-and-frequency budgets, and position-level reports.
 - Anything that spends money without a separate, explicit enable step.
 
 ## Development
