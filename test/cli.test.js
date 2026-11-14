@@ -67,6 +67,21 @@ test("package.json, server.json and the server agree on name and version", () =>
   assert.equal(server.packages[0].identifier, pkg.name);
   assert.equal(server.packages[0].version, pkg.version);
   assert.ok(server.description.length <= 100);
+  const manifest = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf8"));
+  assert.equal(manifest.version, pkg.version, "the Claude Desktop extension has the same version");
+  assert.equal(manifest.server.mcp_config.env.SNAP_HOME, "${HOME}/.ads-mcp-for-snapchat", "the extension keeps settings outside its own folder");
   assert.match(readFileSync(join(ROOT, "src", "index.js"), "utf8"), new RegExp(`version: "${pkg.version.replace(/\./g, "\\.")}"`));
   for (const f of pkg.files) assert.ok(existsSync(join(ROOT, f)), `${f} is in the package`);
+});
+
+test("an optional extension setting left empty (unreplaced ${user_config.x}) does not stop the server", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ext-"));
+  const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  const r = spawnSync(process.execPath, [join(ROOT, "src", "index.js")], {
+    input: `${init}\n`,
+    encoding: "utf8",
+    timeout: 5000,
+    env: { PATH: process.env.PATH, SNAP_HOME: dir, SNAP_DEFAULT_COUNTRY: "${user_config.default_country}", SNAP_MAX_DAILY_BUDGET: "300", SNAP_READ_ONLY: "true" },
+  });
+  assert.match(r.stdout, /"serverInfo"/, r.stderr);
 });

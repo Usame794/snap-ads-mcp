@@ -339,7 +339,7 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   const { tools } = await listing.client.listTools();
   const writeTools = tools.filter((x) => x.annotations?.readOnlyHint === false && x.inputSchema.properties.confirm).map((x) => x.name).sort();
   assert.deepEqual(writeTools, Object.keys(calls).sort(), "the table above covers every mutating tool");
-  assert.equal(tools.length, 58);
+  assert.equal(tools.length, 59);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} rejects unknown arguments`);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", `${tool.name} is annotated`);
@@ -347,7 +347,7 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   }
   assert.equal(tools.find((x) => x.name === "snap_delete").annotations.destructiveHint, true);
   assert.equal(tools.find((x) => x.name === "snap_create_campaign").annotations.destructiveHint, false);
-  assert.deepEqual(tools.filter((x) => x.annotations.readOnlyHint === false && !x.inputSchema.properties.confirm).map((x) => x.name), ["snap_report_async_download"]);
+  assert.deepEqual(tools.filter((x) => x.annotations.readOnlyHint === false && !x.inputSchema.properties.confirm).map((x) => x.name), ["snap_connect", "snap_report_async_download"]); // both write only local files (settings, a report), never the ad account
   await listing.close();
 
   for (const [name, args] of Object.entries(calls)) {

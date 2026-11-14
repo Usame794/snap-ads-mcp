@@ -1,6 +1,6 @@
 {
   "name": "ads-mcp-for-snapchat",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Unofficial local MCP server for the Snapchat Marketing API: reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "mcpName": "io.github.Usame794/ads-mcp-for-snapchat",
   "type": "module",
@@ -12,7 +12,8 @@
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "weekly-report": "node scripts/weekly-report.js"
+    "weekly-report": "node scripts/weekly-report.js",
+    "pack:mcpb": "node scripts/build-mcpb.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

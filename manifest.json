@@ -1,0 +1,92 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "ads-mcp-for-snapchat",
+  "display_name": "Ads MCP for Snapchat",
+  "version": "0.5.0",
+  "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
+  "long_description": "Unofficial. Runs on your computer with your own Snapchat OAuth app. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\".",
+  "author": {
+    "name": "Usame794",
+    "url": "https://github.com/Usame794"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Usame794/snap-ads-mcp"
+  },
+  "homepage": "https://github.com/Usame794/snap-ads-mcp",
+  "documentation": "https://github.com/Usame794/snap-ads-mcp#readme",
+  "support": "https://github.com/Usame794/snap-ads-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "snapchat",
+    "ads",
+    "marketing",
+    "advertising"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "src/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/src/index.js"
+      ],
+      "env": {
+        "SNAP_HOME": "${HOME}/.ads-mcp-for-snapchat",
+        "SNAP_CLIENT_ID": "${user_config.client_id}",
+        "SNAP_CLIENT_SECRET": "${user_config.client_secret}",
+        "SNAP_MAX_DAILY_BUDGET": "${user_config.max_daily_budget}",
+        "SNAP_DEFAULT_COUNTRY": "${user_config.default_country}",
+        "SNAP_READ_ONLY": "${user_config.read_only}"
+      }
+    }
+  },
+  "user_config": {
+    "client_id": {
+      "type": "string",
+      "title": "Client ID",
+      "description": "From Snap Business Manager > Business Details > OAuth Apps. Create an app there with the Redirect URI https://127.0.0.1/callback.",
+      "required": true
+    },
+    "client_secret": {
+      "type": "string",
+      "title": "Client Secret",
+      "description": "Shown once when you create the OAuth app. Stored by Claude Desktop, never sent to the chat.",
+      "sensitive": true,
+      "required": true
+    },
+    "max_daily_budget": {
+      "type": "number",
+      "title": "Highest daily budget",
+      "description": "The highest daily budget Claude may set, in your account's currency.",
+      "default": 1000,
+      "min": 5,
+      "required": true
+    },
+    "default_country": {
+      "type": "string",
+      "title": "Main country (optional)",
+      "description": "Two letters, such as us, sa or ae. Used when a new ad squad does not name its countries.",
+      "default": "",
+      "required": false
+    },
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-only",
+      "description": "On: Claude can read and preview but change nothing. Turn it off when you are ready.",
+      "default": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
