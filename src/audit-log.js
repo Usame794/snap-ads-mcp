@@ -60,7 +60,7 @@ export function auditResult(file, { event_id, tool, account, targets = [], ok, r
     append(file, { at: new Date().toISOString(), kind: "audit", phase: "result", event_id, tool, account: account ?? null, target_ids: targets, status: ok ? "ok" : "failed", ...(ok ? { result: redact(result) } : { error: redact(String(error)) }) });
     return { logged: true };
   } catch (e) {
-    process.stderr.write(`[snapchat-ads-mcp] AUDIT LOG WRITE FAILED after ${tool} (${ok ? "ok" : "failed"}), event ${event_id}: ${e.code ?? e.message}\n`);
+    process.stderr.write(`[ads-mcp-for-snapchat] AUDIT LOG WRITE FAILED after ${tool} (${ok ? "ok" : "failed"}), event ${event_id}: ${e.code ?? e.message}\n`);
     return { logged: false, error: String(e.code ?? e.message) };
   }
 }

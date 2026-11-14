@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (2026-11-14)
+
+Renamed to **Ads MCP for Snapchat** (package `ads-mcp-for-snapchat`), so the name does not read as Snap's own product. Tool names (`snap_*`) are unchanged.
+
+### New ad formats
+- `snap_create_story_creative`: Story Ads from 1-20 existing Snaps in a fixed order, with an optional tile for the Stories tab (PREVIEW + COMPOSITE creatives).
+- `snap_create_collection_creative`: Collection Ads with 4-20 product tiles (creative elements, interaction zone, COLLECTION creative).
+- `snap_create_creative` takes `creative_type: "SNAP_AD"` for a Snap with no link (image or video).
+- `snap_create_ad` takes the ad type from the creative (REMOTE_WEBPAGE, SNAP_AD, STORY, COLLECTION) and refuses a mismatch.
+
+### Fixes
+- The call to action list now matches Snap's documented WEB_VIEW values; `BUY_NOW` and `VIEW_MORE`, which Snap does not accept for these creatives, were removed.
+
+The new formats follow Snap's API reference and are covered by mocked tests; they have not yet been run against a live account.
+
 ## 0.2.1 (2026-11-14)
 
 Fixes from a full code review, and a note on Snap's terms.

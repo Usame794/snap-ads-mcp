@@ -1,13 +1,13 @@
 # Architecture and design notes
 
-For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 55 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
+For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 57 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
 
 ## Architecture (src/)
-- `index.js`: MCP server entry. `tools.js`: all 55 tool definitions (zod schemas, handlers).
+- `index.js`: MCP server entry. `tools.js`: all 57 tool definitions (zod schemas, handlers).
 - `snap.js`: `SnapClient` (token refresh, retry), `ENTITIES` (campaign, adsquad, ad, creative, media, segment), sanitize-for-create/update helpers, `createEntity/updateEntity/getEntity/listChildren`, `upload`.
 - `env.js`: `.env` loading and `setEnvValue` (writes a value without printing it).
 - `changes.js`: plan functions (status, budget, exclusions, rename, bid, targeting, schedule), `applyChange` (logs before/after), `containsDeep`, `planUndo`.
-- Feature modules: `copy.js`, `clone-ad.js`, `bulk.js`, `bulk-edit.js`, `influencer.js`, `influencer-batch.js`, `create.js`, `creative-tools.js`, `readers.js`, `report.js`, `async-report.js`, `audit.js`, `fatigue.js`, `customer-list.js`, `delete.js`.
+- Feature modules: `formats.js` (SNAP_AD, Story and Collection builders, ad type per creative type, CTA list), `copy.js`, `clone-ad.js`, `bulk.js`, `bulk-edit.js`, `influencer.js`, `influencer-batch.js`, `create.js`, `creative-tools.js`, `readers.js`, `report.js`, `async-report.js`, `audit.js`, `fatigue.js`, `customer-list.js`, `delete.js`.
 - `policy.js` (limits and market settings, validated at startup), `approval.js`, `ownership.js`, `activation.js`, `audit-log.js` (see "Safety design").
 - `scripts/`: `check.js`, `get-refresh-token.js`, `save-secret.js` (clipboard or `--stdin`, via `src/clipboard.js`), `smoke.js` (9 live read checks), `live-create-creative.js`, `weekly-report.js`.
 

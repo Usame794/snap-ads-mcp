@@ -2,7 +2,9 @@
 import { logChange } from "./changes.js";
 
 const AD_CODE_RE = /^adcode_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const CTAS = ["SHOP_NOW", "ORDER_NOW", "BUY_NOW", "VIEW_MORE", "MORE"];
+// Snap's documented call to action values for WEB_VIEW creatives (BUY_NOW and VIEW_MORE are not among them).
+export { WEB_VIEW_CTAS as CTAS } from "./formats.js";
+import { WEB_VIEW_CTAS as CTAS } from "./formats.js";
 
 export function validateAdCode(code) {
   const c = String(code ?? "").trim();
@@ -62,6 +64,7 @@ export function buildCreative({ adAccountId, profileId, mediaId, name, headline,
 }
 
 export function buildAd({ adSquadId, creativeId, name, type = "REMOTE_WEBPAGE" }) {
+  // REMOTE_WEBPAGE is the ad type for the WEB_VIEW creatives this module builds; other formats pass their own type.
   if (!name?.trim()) throw new Error("name is required");
   return { ad_squad_id: adSquadId, creative_id: creativeId, name: name.trim(), type, status: "PAUSED" };
 }

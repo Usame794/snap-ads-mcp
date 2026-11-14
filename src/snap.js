@@ -36,6 +36,20 @@ export const ENTITIES = {
     createPath: (obj) => `/adaccounts/${obj.ad_account_id}/creatives`,
     updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/creatives`,
   },
+  creative_element: {
+    plural: "creative_elements",
+    singular: "creative_element",
+    getPath: (id) => `/creative_elements/${id}`,
+    createPath: (obj) => `/adaccounts/${obj.ad_account_id}/creative_elements`,
+    updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/creative_elements`,
+  },
+  interaction_zone: {
+    plural: "interaction_zones",
+    singular: "interaction_zone",
+    getPath: (id) => `/interaction_zones/${id}`,
+    createPath: (obj) => `/adaccounts/${obj.ad_account_id}/interaction_zones`,
+    updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/interaction_zones`,
+  },
   campaign: {
     plural: "campaigns",
     singular: "campaign",
