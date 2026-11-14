@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Command-line entry for the npm package: `npx ads-mcp-for-snapchat <command>`. With no command it starts the MCP server,
 // which is what an MCP client runs. The other commands are the one-time setup helpers from scripts/.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { envFile, ROOT } from "./env.js";
+import { init } from "./init.js";
 
 const SCRIPTS = {
   "save-secret": "save-secret.js",
@@ -18,6 +19,7 @@ export const HELP = `Ads MCP for Snapchat
 Usage: npx ads-mcp-for-snapchat [command]
 
   (no command)     start the MCP server (this is what Claude runs)
+  setup            guided setup: connect your account and add it to Claude (--file PATH for another account)
   init             create the settings file from the template
   where            print the settings file in use
   save-secret      save the client secret from the clipboard (--stdin to paste it instead)
@@ -28,24 +30,14 @@ Usage: npx ads-mcp-for-snapchat [command]
 
 Settings file: SNAP_ENV_FILE if set, otherwise .env in ~/.ads-mcp-for-snapchat (npm install) or the project folder (git clone).`;
 
-// Creates the settings file from .env.example, private to the user. Never overwrites an existing file.
-export function init(file = envFile()) {
-  if (existsSync(file)) return { created: false, file };
-  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  copyFileSync(join(ROOT, ".env.example"), file);
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    // not fatal (e.g. Windows)
-  }
-  return { created: true, file };
-}
+export { init } from "./init.js";
 
 export async function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
   if (!command || command === "serve") return import("./index.js");
   if (command === "help" || command === "--help" || command === "-h") return console.log(HELP);
   if (command === "where") return console.log(envFile());
+  if (command === "setup") return (await import("./setup.js")).setupCommand(rest);
   if (command === "init") {
     const r = init();
     console.log(r.created ? `Created ${r.file}. Fill in SNAP_CLIENT_ID and SNAP_AD_ACCOUNT_ID, then run save-secret.` : `${r.file} already exists; nothing changed.`);

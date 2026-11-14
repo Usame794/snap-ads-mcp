@@ -6,6 +6,9 @@ import { loadPolicy } from "./policy.js";
 import { SnapClient } from "./snap.js";
 import { registerTools } from "./tools.js";
 
+// A Claude Desktop extension passes optional settings the person left empty as unreplaced "${user_config.x}" text on some
+// versions. Treat those as unset, so an empty optional setting can never stop the server or become a real value.
+for (const [k, v] of Object.entries(process.env)) if (k.startsWith("SNAP_") && /^\$\{user_config\.[a-z_]+\}$/.test(v ?? "")) delete process.env[k];
 loadEnv();
 let policy;
 try {
@@ -17,7 +20,7 @@ try {
 }
 // Snapshot of the non-secret settings taken at startup. Later edits to .env do not change limits or the target account.
 const settings = { ...process.env };
-const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.4.1" });
+const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.5.0" });
 // Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
 const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
 registerTools(server, client, settings);

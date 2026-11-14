@@ -8,3 +8,4 @@ changes.log.jsonl
 exports/
 node_modules/
 *-PRIVATE.md
+dist/

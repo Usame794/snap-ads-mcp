@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-11-14)
+
+- Easy setup: `npx -y ads-mcp-for-snapchat setup` goes from nothing to a working server in one command. It asks for the Client ID and secret (the secret is hidden), opens the approval page, reads the code from the pasted address (checking it belongs to this attempt), lists the login's ad accounts to choose from, asks for the highest daily budget, main country and read-only mode, and adds the server to Claude Code (or prints the exact settings for other apps). Switching a file to another account clears the old account's pixel and brand profile.
+- Claude Desktop extension (`.mcpb`, attached to each GitHub release): install with a double-click, enter the Client ID and secret in Claude Desktop's own settings screen, then connect from the chat.
+- New tool `snap_connect`: connect an ad account from inside the chat (link, pasted address, account choice). The Client ID and secret come from the app's settings, never from the chat; the refresh token is saved to the settings file and never returned. It changes no ads, so it also works in read-only mode. A new account takes effect after restarting the app, as before.
+- An optional Claude Desktop setting left empty is ignored instead of stopping the server.
+
 ## 0.4.1 (2026-11-14)
 
 - Settings files: when a key appears twice, the last line now wins (as in dotenv), so a line added at the end, such as `SNAP_READ_ONLY=1`, takes effect. Saving a secret or token replaces every copy of that key, so an older duplicate can never win.

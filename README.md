@@ -24,17 +24,24 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 
 In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Find media already in the account with `snap_list_media`, or upload with `snap_upload_media` and wait until `snap_get_media` says READY.
 
-## Install from npm (no download needed)
-Needs Node 18 or newer. Your settings live in `~/.ads-mcp-for-snapchat/.env`, outside the package, so updates never touch them.
+## Easy setup (about 5 minutes)
+First, once: in [Snap Business Manager](https://business.snapchat.com) open **Business Details > OAuth Apps > + OAuth App**, use the Redirect URI `https://127.0.0.1/callback`, and copy the **Client ID** and **Client Secret** (the secret is shown only once).
 
-1. `npx -y ads-mcp-for-snapchat init` creates the settings file (private to you). `npx -y ads-mcp-for-snapchat where` prints its path.
-2. Open it, fill in `SNAP_CLIENT_ID`, `SNAP_AD_ACCOUNT_ID`, your limits and market settings, then follow **Setup (one time)** below using these commands instead of `node scripts/...`:
-   - `npx -y ads-mcp-for-snapchat save-secret` (client secret from the clipboard; `--stdin` to paste it instead)
-   - `npx -y ads-mcp-for-snapchat auth THE_CODE` (refresh token)
-   - `npx -y ads-mcp-for-snapchat check` (read-only test)
-3. Register it: `claude mcp add --scope user snapchat-ads -- npx -y ads-mcp-for-snapchat`, then restart Claude Code. For Claude Desktop use `"command": "npx", "args": ["-y", "ads-mcp-for-snapchat"]`.
+**Claude Desktop (no terminal):**
+1. Download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snap-ads-mcp/releases/latest) and double-click it. Claude Desktop shows an install screen.
+2. Enter the Client ID and Client Secret, your highest daily budget and (optional) your main country. Leave **Read-only** on for now.
+3. In a chat, ask: **"Connect my Snapchat ad account."** Claude gives you a link; approve in the browser, paste back the address it lands on, and pick your ad account from the list.
+4. Quit and reopen Claude Desktop. Ask: "call snap_ping".
 
-`npx -y ads-mcp-for-snapchat help` lists every command. For a second ad account, put `SNAP_ENV_FILE=/path/to/.env.account2` in front of any command, and register it as `claude mcp add --scope user snapchat-ads-2 -e SNAP_ENV_FILE=/path/to/.env.account2 -- npx -y ads-mcp-for-snapchat` (name before `-e`) (see "Several ad accounts"). It is also listed in the official MCP Registry as `io.github.Usame794/ads-mcp-for-snapchat`.
+**Claude Code, Cursor, VS Code (one command, needs Node 18+):**
+
+```
+npx -y ads-mcp-for-snapchat setup
+```
+
+It asks for the Client ID and secret (hidden), opens the approval page, lists your ad accounts to choose from, asks for your first safety settings, and adds the server to Claude Code. For Cursor, VS Code or Claude Desktop it prints the exact settings to paste. Another ad account: `npx -y ads-mcp-for-snapchat setup --file ~/.ads-mcp-for-snapchat/.env.account2`.
+
+Settings, the change log and exports live in `~/.ads-mcp-for-snapchat/`, outside the package, so updates never touch them. `npx -y ads-mcp-for-snapchat help` lists the other commands (`check`, `where`, `weekly-report`, and the step-by-step `init`, `save-secret`, `auth`). It is also listed in the official MCP Registry as `io.github.Usame794/ads-mcp-for-snapchat`.
 
 ## Quick start (from source)
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
@@ -90,6 +97,7 @@ Existing items above a limit can still be read, lowered and paused, but not rais
 | Tool | Type |
 |---|---|
 | `snap_ping` | check credentials |
+| `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |
 | `snap_report_daily` | read: day-by-day performance (up to 31 days) |

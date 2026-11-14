@@ -2,6 +2,8 @@ import { statSync } from "node:fs";
 import { randomInt } from "node:crypto";
 import { z } from "zod";
 import { SnapClient } from "./snap.js";
+import { envFile, setEnvValue } from "./env.js";
+import { authorizeUrl, DEFAULT_REDIRECT, exchangeCode, extractCode, listAdAccounts, newState } from "./oauth.js";
 import { executeChange, LOG_FILE, planBid, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, prepareChange, previewOf, readLog, undoableEntries } from "./changes.js";
 import { executeBulkEdit, plans, prepareBulkEdit } from "./bulk-edit.js";
 import { runBatch, checkBatch } from "./influencer-batch.js";
@@ -267,6 +269,57 @@ export function registerTools(server, client, env = process.env) {
     const me = await client.request("GET", "/me");
     return { ok: true, me: me.me ?? me, ad_account: cfg.account ?? null, safety_limits: describePolicy(policy) };
   });
+
+  // Connecting from inside the chat (Claude Desktop extension, no terminal). The Client ID and secret come from the app's
+  // settings, never from the chat. The authorization code that passes through the chat is single-use, expires in minutes and
+  // is useless without the secret. The refresh token is saved to the settings file and never returned.
+  let pendingState = null;
+  server.registerTool(
+    "snap_connect",
+    {
+      description:
+        "Connect this server to a Snapchat ad account, from inside the chat. Step 1: call with no arguments; it returns a link for the person to open and approve. Step 2: the person pastes the address the browser landed on; call with redirected_url, and it saves access on this computer and lists the ad accounts. Step 3: call with ad_account_id to choose one, then the app must be restarted. Changes no ads.",
+      inputSchema: z.object({ redirected_url: z.string().max(4000).optional(), ad_account_id: id().optional() }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ redirected_url, ad_account_id }) => {
+      try {
+        const e = client.env;
+        if (!e.SNAP_CLIENT_ID || !e.SNAP_CLIENT_SECRET) {
+          throw new Error("The Client ID and Client Secret are not set. Enter them in the extension's settings (Claude Desktop: Settings > Extensions > Ads MCP for Snapchat), or run: npx -y ads-mcp-for-snapchat setup");
+        }
+        const redirectUri = e.SNAP_REDIRECT_URI || DEFAULT_REDIRECT;
+        const file = envFile();
+        if (ad_account_id) {
+          const accounts = await listAdAccounts(client);
+          const chosen = accounts.find((a) => a.id === ad_account_id);
+          if (!chosen) throw new Error("That ad account is not one this login can see. Call snap_connect with redirected_url again to list them.");
+          setEnvValue("SNAP_AD_ACCOUNT_ID", chosen.id, file);
+          if (/^[A-Z]{3}$/.test(chosen.currency ?? "")) setEnvValue("SNAP_ACCOUNT_CURRENCY", chosen.currency, file);
+          return asResult({ ok: true, account: chosen, saved_to: file, next: "Quit and reopen the app (Claude Desktop: fully quit, then open it again), then call snap_ping. The account is fixed when the server starts, so a running server keeps its old account." });
+        }
+        if (!redirected_url) {
+          pendingState = newState();
+          return asResult({
+            step: 1,
+            link: authorizeUrl({ clientId: e.SNAP_CLIENT_ID, redirectUri, state: pendingState }),
+            tell_the_person: "Open this link, log in to Snapchat and click Continue. The browser then shows an error page (that is normal). Copy the whole address from the address bar and paste it here.",
+          });
+        }
+        if (!pendingState) throw new Error("Start with snap_connect without arguments to get a fresh link.");
+        const token = await exchangeCode({ clientId: e.SNAP_CLIENT_ID, clientSecret: e.SNAP_CLIENT_SECRET, redirectUri, code: extractCode(redirected_url, pendingState), fetchImpl: client.fetch });
+        pendingState = null;
+        setEnvValue("SNAP_REFRESH_TOKEN", token, file);
+        e.SNAP_REFRESH_TOKEN = token;
+        client.token = null;
+        client.tokenExpiry = 0;
+        const accounts = await listAdAccounts(client);
+        return asResult({ step: 2, connected: true, saved_to: file, ad_accounts: accounts, next: accounts.length ? "Ask the person which ad account to use, then call snap_connect with its ad_account_id." : "This login sees no ad account. The account admin must add it first." });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
 
   // Lists read every page, apply the status filter to ALL rows, and only then cut to `limit`. If anything was left out, say so.
   const nameFilter = z.string().min(1).max(100).optional().describe("Only items whose name contains this text (case-insensitive). Use it to find one item in a big account.");
