@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-11-14)
+
+- New read-only tool `snap_list_media`: the account's images and videos (READY by default), newest first, filtered by type and name, across every page. Finding a media id for a Story, Collection or Snap no longer needs the raw API tool.
+- Verified live on a real account: Story creative and STORY ad (paused), and a SNAP_AD creative.
+
 ## 0.3.0 (2026-11-14)
 
 Renamed to **Ads MCP for Snapchat** (package `ads-mcp-for-snapchat`), so the name does not read as Snap's own product. Tool names (`snap_*`) are unchanged.

@@ -1,9 +1,9 @@
 # Architecture and design notes
 
-For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 57 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
+For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 58 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
 
 ## Architecture (src/)
-- `index.js`: MCP server entry. `tools.js`: all 57 tool definitions (zod schemas, handlers).
+- `index.js`: MCP server entry. `tools.js`: all 58 tool definitions (zod schemas, handlers).
 - `snap.js`: `SnapClient` (token refresh, retry), `ENTITIES` (campaign, adsquad, ad, creative, media, segment), sanitize-for-create/update helpers, `createEntity/updateEntity/getEntity/listChildren`, `upload`.
 - `env.js`: `.env` loading and `setEnvValue` (writes a value without printing it).
 - `changes.js`: plan functions (status, budget, exclusions, rename, bid, targeting, schedule), `applyChange` (logs before/after), `containsDeep`, `planUndo`.
