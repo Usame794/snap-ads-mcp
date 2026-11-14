@@ -1,6 +1,6 @@
 // Structured audit trail for every mutating tool call, written to the same JSON-lines file as the change log.
 // An "intent" record is written BEFORE anything is sent; if that write fails, the operation does not run.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const SECRET_KEY = /secret|token|password|authorization|cookie|credential/i;
@@ -26,10 +26,15 @@ export function redact(value, depth = 0) {
 
 // Everything this process recorded, per log file, kept in memory as well. Safety decisions read the file AND this copy,
 // so deleting or truncating the file while the server runs does not reset the 24-hour limits.
+// Only the last 24 hours matter for the limits, so older records are dropped (25 h, to cover clock skew).
 const SESSION = new Map();
+const KEEP_MS = 25 * 3_600_000;
 export function remember(file, record) {
   if (!SESSION.has(file)) SESSION.set(file, []);
-  SESSION.get(file).push(record);
+  const list = SESSION.get(file);
+  list.push(record);
+  const cutoff = Date.now() - KEEP_MS;
+  while (list.length && (Date.parse(list[0].at) || 0) < cutoff) list.shift();
 }
 const keyOf = (e) => `${e.at}|${e.event_id ?? e.id ?? ""}|${e.phase ?? ""}|${e.change ?? ""}`;
 
@@ -79,8 +84,29 @@ export function readLogStrict(file) {
 }
 
 // The log as safety decisions see it: the file plus anything this process recorded that is no longer in the file, oldest first.
+// The parsed log, re-read only when the file changed (size or modification time). A bulk edit of 20 items then parses the
+// file once instead of once per item.
+const PARSED = new Map();
+function readLogCached(file) {
+  let st;
+  try {
+    st = statSync(file);
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      PARSED.delete(file);
+      return [];
+    }
+    throw new Error(`Change log cannot be read (${e.code ?? e.message}); refusing changes that depend on it.`);
+  }
+  const hit = PARSED.get(file);
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.entries;
+  const entries = readLogStrict(file);
+  PARSED.set(file, { size: st.size, mtimeMs: st.mtimeMs, entries });
+  return entries;
+}
+
 export function safetyEntries(file) {
-  const fromFile = readLogStrict(file);
+  const fromFile = readLogCached(file);
   const seen = new Set(fromFile.map(keyOf));
   const missing = (SESSION.get(file) ?? []).filter((e) => !seen.has(keyOf(e)));
   if (!missing.length) return fromFile;

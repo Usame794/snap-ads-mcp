@@ -13,6 +13,10 @@ import { collectBreakdown, summarizeRow } from "../src/report.js";
 loadEnv();
 const client = new SnapClient();
 const acct = process.env.SNAP_AD_ACCOUNT_ID;
+if (!acct) {
+  console.error(`SNAP_AD_ACCOUNT_ID is not set in ${process.env.SNAP_ENV_FILE || ".env"}. Add it and run again.`);
+  process.exit(1);
+}
 const offset = loadPolicy(process.env).reportUtcOffset; // e.g. +03:00
 const offsetMs = (offset[0] === "-" ? -1 : 1) * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4))) * 60_000;
 const today = new Date(Date.now() + offsetMs).toISOString().slice(0, 10);

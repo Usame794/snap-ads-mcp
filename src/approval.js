@@ -69,7 +69,8 @@ export class ApprovalStore {
 
   prune() {
     const t = this.now();
-    for (const [k, v] of this.tokens) if (v.expires < t - 60_000) this.tokens.delete(k);
+    // Expired tokens are kept for an hour (the store stays bounded by `max`), so a late confirm says "expired", not "unknown".
+    for (const [k, v] of this.tokens) if (v.expires < t - 3_600_000) this.tokens.delete(k);
     while (this.tokens.size > this.max) this.tokens.delete(this.tokens.keys().next().value);
     for (const [k, v] of this.executed) if (v.at < t - this.repeatWindowMs) this.executed.delete(k);
   }

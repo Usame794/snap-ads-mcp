@@ -2,7 +2,7 @@
 import { logChange } from "./changes.js";
 
 const AD_CODE_RE = /^adcode_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const CTAS = ["SHOP_NOW", "ORDER_NOW", "BUY_NOW", "VIEW_MORE", "MORE", "SHOP_NOW"];
+export const CTAS = ["SHOP_NOW", "ORDER_NOW", "BUY_NOW", "VIEW_MORE", "MORE"];
 
 export function validateAdCode(code) {
   const c = String(code ?? "").trim();
@@ -47,7 +47,7 @@ export function buildCreative({ adAccountId, profileId, mediaId, name, headline,
   if (!headline?.trim()) throw new Error("headline is required");
   if (headline.length > 34) throw new Error(`headline is ${headline.length} characters; Snap allows 34`);
   if (!/^https:\/\//.test(url ?? "")) throw new Error("url must start with https://");
-  if (!CTAS.includes(callToAction)) throw new Error(`call_to_action must be one of ${[...new Set(CTAS)].join(", ")}`);
+  if (!CTAS.includes(callToAction)) throw new Error(`call_to_action must be one of ${CTAS.join(", ")}`);
   return {
     ad_account_id: adAccountId,
     name: name.trim(),

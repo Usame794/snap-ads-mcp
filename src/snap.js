@@ -203,7 +203,14 @@ export class SnapClient {
     if (absolute && (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//"))) throw new Error("Upload path returned by Snap is not a plain path; refusing to send credentials to it.");
     const url = new URL(absolute ? "https://adsapi.snapchat.com" + path : API + path);
     if (url.origin !== "https://adsapi.snapchat.com") throw new Error("Upload URL is not on adsapi.snapchat.com; refusing to send credentials to it.");
-    const res = await this.fetchRetry(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData }, { timeoutMs: this.uploadTimeoutMs });
+    const send = async (bearer) => this.fetchRetry(url, { method: "POST", headers: { Authorization: `Bearer ${bearer}` }, body: formData }, { timeoutMs: this.uploadTimeoutMs });
+    let res = await send(token);
+    if (res.status === 401) {
+      // Same as request(): a 401 was not processed, so one fresh token and one repeat are safe.
+      this.token = null;
+      this.tokenExpiry = 0;
+      res = await send(await this.accessToken());
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.request_status === "ERROR") {
       throw new Error(`Snap API POST ${path} failed (${res.status}): ${data.debug_message || data.display_message || JSON.stringify(data).slice(0, 300)}`);
