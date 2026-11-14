@@ -95,3 +95,23 @@ test("credential and log files of any account are git-ignored, the example is no
   assert.deepEqual(r.stdout.trim().split("\n"), [".env", ".env.account2", ".env.account2.log.jsonl", "changes.log.jsonl"]);
   assert.equal(spawnSync("git", ["check-ignore", "--no-index", "-q", ".env.example"], { cwd: ROOT }).status, 1, ".env.example stays tracked");
 });
+
+test("a key written twice in a settings file: the last line wins, and saving a value replaces every copy", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dup-"));
+  const file = join(dir, ".env.account2");
+  writeFileSync(file, "SNAP_READ_ONLY=0\nSNAP_AD_ACCOUNT_ID=acc-2\nSNAP_READ_ONLY=1\n");
+  withEnv({ SNAP_READ_ONLY: undefined, SNAP_AD_ACCOUNT_ID: undefined }, () => {
+    loadEnv(file);
+    assert.equal(process.env.SNAP_READ_ONLY, "1", "the line appended at the end takes effect");
+  });
+  withEnv({ SNAP_READ_ONLY: "0" }, () => {
+    loadEnv(file);
+    assert.equal(process.env.SNAP_READ_ONLY, "0", "a real environment variable still wins over the file");
+  });
+  writeFileSync(file, "SNAP_REFRESH_TOKEN=old-1\nSNAP_AD_ACCOUNT_ID=acc-2\nSNAP_REFRESH_TOKEN=old-2\n");
+  setEnvValue("SNAP_REFRESH_TOKEN", "new", file);
+  assert.equal(readFileSync(file, "utf8"), "SNAP_REFRESH_TOKEN=new\nSNAP_AD_ACCOUNT_ID=acc-2\n");
+  writeFileSync(file, "SNAP_AD_ACCOUNT_ID=acc-2\nSNAP_REFRESH_TOKEN=old");
+  setEnvValue("SNAP_REFRESH_TOKEN", "new", file);
+  assert.equal(readFileSync(file, "utf8"), "SNAP_AD_ACCOUNT_ID=acc-2\nSNAP_REFRESH_TOKEN=new");
+});

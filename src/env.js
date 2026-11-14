@@ -19,14 +19,22 @@ export const envFile = () => process.env.SNAP_ENV_FILE || join(dataDir(), ".env"
 
 // Minimal .env loader so the server needs no extra dependency.
 export function loadEnv(file = envFile(), { override = false } = {}) {
+  let text;
   try {
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m || line.trim().startsWith("#")) continue;
-      if (override || process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-    }
+    text = readFileSync(file, "utf8");
   } catch {
-    // .env is optional; real environment variables also work.
+    return; // .env is optional; real environment variables also work.
+  }
+  // When a key appears twice in the file, the LAST line wins (as in dotenv), so a line appended at the end, such as
+  // SNAP_READ_ONLY=1, really takes effect. A real environment variable still wins over the file unless override is set.
+  const values = {};
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!m || line.trim().startsWith("#")) continue;
+    values[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (override || process.env[key] === undefined) process.env[key] = value;
   }
 }
 
@@ -39,8 +47,19 @@ export function setEnvValue(key, value, file = envFile()) {
   } catch {
     // create the file if missing
   }
-  const re = new RegExp(`^${key}=.*$`, "m");
-  text = re.test(text) ? text.replace(re, () => `${key}=${value}`) : text.replace(/\n?$/, "\n") + `${key}=${value}\n`;
+  // Every line of this key is replaced: the first keeps its place, later duplicates are removed. Otherwise a duplicate further
+  // down would win when the file is read (see loadEnv) and the new value would be silently ignored.
+  const re = new RegExp(`^${key}=.*(?:\n|$)`, "gm");
+  let seen = false;
+  if (re.test(text)) {
+    text = text.replace(re, (line) => {
+      if (seen) return "";
+      seen = true;
+      return `${key}=${value}${line.endsWith("\n") ? "\n" : ""}`;
+    });
+  } else {
+    text = text.replace(/\n?$/, "\n") + `${key}=${value}\n`;
+  }
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, text, { mode: 0o600 });
   // `mode` only applies when the file is created; an existing .env keeps its old permissions unless tightened here.

@@ -34,7 +34,7 @@ Needs Node 18 or newer. Your settings live in `~/.ads-mcp-for-snapchat/.env`, ou
    - `npx -y ads-mcp-for-snapchat check` (read-only test)
 3. Register it: `claude mcp add --scope user snapchat-ads -- npx -y ads-mcp-for-snapchat`, then restart Claude Code. For Claude Desktop use `"command": "npx", "args": ["-y", "ads-mcp-for-snapchat"]`.
 
-`npx -y ads-mcp-for-snapchat help` lists every command. For a second ad account, put `SNAP_ENV_FILE=/path/to/.env.account2` in front of any command, and add `-e SNAP_ENV_FILE=/path/to/.env.account2` when registering it (see "Several ad accounts"). It is also listed in the official MCP Registry as `io.github.Usame794/ads-mcp-for-snapchat`.
+`npx -y ads-mcp-for-snapchat help` lists every command. For a second ad account, put `SNAP_ENV_FILE=/path/to/.env.account2` in front of any command, and register it as `claude mcp add --scope user snapchat-ads-2 -e SNAP_ENV_FILE=/path/to/.env.account2 -- npx -y ads-mcp-for-snapchat` (name before `-e`) (see "Several ad accounts"). It is also listed in the official MCP Registry as `io.github.Usame794/ads-mcp-for-snapchat`.
 
 ## Quick start (from source)
 1. `git clone` this repository, then `npm ci`, then `npm test` (all tests are mocked and need no account).
@@ -183,8 +183,9 @@ Run one server per ad account, each with its own settings file. Each server only
 1. Copy your settings: `cp .env .env.account2`. In `.env.account2`, set that account's `SNAP_AD_ACCOUNT_ID`, `SNAP_PIXEL_ID`, `SNAP_BRAND_PROFILE_ID` and its own limits. Every `.env*` file except `.env.example` is git-ignored.
 2. If that account belongs to another Snapchat login, authorize it into its own file (same steps as "Setup", with the variable in front): `SNAP_ENV_FILE=.env.account2 node scripts/get-refresh-token.js`, then `SNAP_ENV_FILE=.env.account2 node scripts/check.js`. If the same login can see both accounts, the copied credentials already work.
 3. Register a second server with an absolute path to the file:
-   `claude mcp add --scope user -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/.env.account2" snapchat-ads-2 -- node "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"`
-4. Start with `SNAP_READ_ONLY=1` in the new file and check `snap_ping` shows the right account.
+   `claude mcp add --scope user snapchat-ads-2 -e SNAP_ENV_FILE="/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/.env.account2" -e SNAP_READ_ONLY=1 -- node "/ABSOLUTE/PATH/TO/ads-mcp-for-snapchat/src/index.js"`
+   The server name must come before `-e` (`-e` takes every value after it). `-e SNAP_READ_ONLY=1` starts the new account read-only, whatever its file says; remove it (`claude mcp remove snapchat-ads-2`, then add it again without it) when you are ready.
+4. Restart, then check that `snap_ping` shows the new account's id (not the first account's) and `readOnly: true`.
 
 Scripts work the same way: put `SNAP_ENV_FILE=.env.account2` in front of any `node scripts/...` command.
 
