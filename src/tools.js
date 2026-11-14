@@ -14,6 +14,8 @@ import { executeDelete, planDelete } from "./delete.js";
 import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS, SWIPE_WINDOWS, VIEW_WINDOWS } from "./report.js";
 import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.js";
 import { fatigueReport } from "./fatigue.js";
+import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
+import { registerPrompts } from "./prompts.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
 import { buildAdSquad, buildCampaign, createAdSquad, createCampaign, inspectMediaFile, uploadMedia } from "./create.js";
 import { executeCopy, executeCopySquad, loadSource, planCopy, planCopySquad } from "./copy.js";
@@ -505,6 +507,59 @@ export function registerTools(server, client, env = process.env) {
     ({ start_time, end_time, max_frequency, min_swipe_rate_pct, min_spend, min_roas }) =>
       healthCheck(client, { adAccountId: account(), start_time, end_time, thresholds: { maxFrequency: max_frequency, minSwipeRatePct: min_swipe_rate_pct, minSpend: min_spend, minRoas: min_roas } }),
   );
+
+  read(
+    "snap_audience_size",
+    {
+      description:
+        "Snap's estimate of how many people a targeting can reach, BEFORE spending (read-only, nothing is created). Give adsquad_id for an existing ad squad, or the targeting (countries, ages, gender, interests, os, segments) for one you are planning. Says whether the audience is very small, small, OK or very broad.",
+      shape: {
+        adsquad_id: id().optional(),
+        countries: z.array(z.string().length(2)).max(25).optional().describe("2-letter codes, e.g. [\"sa\", \"ae\"]. Defaults to SNAP_DEFAULT_COUNTRY."),
+        min_age: z.number().int().min(13).max(50).optional(),
+        max_age: z.number().int().min(13).max(50).optional(),
+        gender: z.enum(["MALE", "FEMALE"]).optional(),
+        interests: z.array(z.string()).max(50).optional().describe("Interest ids such as SLC_11 (see snap_targeting_options)"),
+        os_type: z.enum(["iOS", "ANDROID"]).optional(),
+        include_segment_ids: z.array(id()).max(50).optional(),
+        exclude_segment_ids: z.array(id()).max(50).optional(),
+      },
+    },
+    async (a) => {
+      if (a.adsquad_id) return audienceSizeForSquad(client, a.adsquad_id);
+      return audienceSizeForTargeting(client, account(), {
+        countries: a.countries ?? defaultCountries(),
+        minAge: a.min_age,
+        maxAge: a.max_age,
+        gender: a.gender,
+        interests: a.interests,
+        osType: a.os_type,
+        includeSegmentIds: a.include_segment_ids,
+        excludeSegmentIds: a.exclude_segment_ids,
+      });
+    },
+  );
+
+  read(
+    "snap_spend_pacing",
+    {
+      description:
+        "Is spend on track? (read-only) Today: each ACTIVE ad squad's spend so far vs its daily budget for this time of day (AHEAD, BEHIND, NOT_SPENDING, BUDGET_NEARLY_USED, ON_TRACK). This month: spend to date, projected month total, the most it could spend, and, with monthly_budget, whether it is over or under and the daily spend needed to land on budget. Days follow SNAP_REPORT_UTC_OFFSET.",
+      shape: { monthly_budget: z.number().positive().optional().describe("Your planned spend for this month, in account currency") },
+    },
+    ({ monthly_budget }) => pacingReport(client, { adAccountId: account(), offset: policy.reportUtcOffset, monthlyBudget: monthly_budget }),
+  );
+
+  read(
+    "snap_ad_preview",
+    {
+      description: "A link to see how an ad looks on a phone, before turning it on (read-only). Give ad_id or creative_id. The link works without login for 90 days, plus a Snapcode image to scan with Snapchat (7 days).",
+      shape: { ad_id: id().optional(), creative_id: id().optional() },
+    },
+    ({ ad_id, creative_id }) => adPreview(client, { adId: ad_id, creativeId: creative_id }),
+  );
+
+  registerPrompts(server);
 
   read(
     "snap_review_issues",

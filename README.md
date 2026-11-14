@@ -93,10 +93,19 @@ Reports state what their numbers mean (`basis`): amounts are Snap micro-currency
 
 Existing items above a limit can still be read, lowered and paused, but not raised or enabled until the owner raises the limit. The 24-hour rules and the audit trail rely on `changes.log.jsonl` (plus an in-memory copy while the server runs, so deleting the file does not reset them until a restart); changes made in Ads Manager are not counted, and the file is not tamper-proof against someone with access to your disk. Keep `.env` and the log out of reach of the AI client's file tools (for Claude Code: a `Read`/`Edit` deny rule for the project folder).
 
+## Playbooks
+Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only read and preview; nothing is applied without your yes.
+- **Weekly review**: last 7 days vs the 7 before, problems, tired ads, pacing, and up to 5 actions.
+- **Launch checklist**: before turning on a paused campaign or ad squad: audience size, pixel, budget, creatives, review status, preview links. PASS / WARN / FAIL per item.
+- **Replace tired ads**: finds wearing-out ads in a campaign and drafts paused replacements from new media.
+
 ## Tools
 | Tool | Type |
 |---|---|
 | `snap_ping` | check credentials |
+| `snap_audience_size` | read: Snap's reach estimate for an ad squad or for targeting you are planning, with a verdict (very small / small / OK / very broad) |
+| `snap_spend_pacing` | read: today's spend per active ad squad vs its budget for this time of day, month-to-date spend, projected month and, with a monthly budget, over / under |
+| `snap_ad_preview` | read: a no-login preview link (90 days) and a Snapcode to scan on a phone (7 days) |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |
@@ -221,7 +230,7 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 
 **Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 
-**Not verified live:** the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
+**Not verified live:** `snap_audience_size`, `snap_spend_pacing` and `snap_ad_preview` (0.6.0, built from Snap's documentation and mocked tests), the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
 - A hosted multi-user version (this server runs on your own machine with your own credentials).

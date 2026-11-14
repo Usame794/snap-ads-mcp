@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 (2026-11-14)
+
+- `snap_audience_size`: Snap's reach estimate before spending, for an existing ad squad or for targeting you are planning (same targeting rules as creating an ad squad), with a verdict: very small, small, OK or very broad. Nothing is created.
+- `snap_spend_pacing`: each active ad squad's spend today vs its daily budget for the time of day (ahead, behind, not spending, budget nearly used, on track), month-to-date spend, the projected month and the most it could spend; with `monthly_budget`, over / under and the daily spend needed to land on it. Local days follow `SNAP_REPORT_UTC_OFFSET`.
+- `snap_ad_preview`: a no-login preview link (90 days) and a Snapcode (7 days) for an ad or creative.
+- Playbooks (MCP prompts): Weekly review, Launch checklist, Replace tired ads. They read and preview only.
+- The three new tools are built from Snap's documentation and mocked tests; not yet verified on a live account.
+
 ## 0.5.0 (2026-11-14)
 
 - Easy setup: `npx -y ads-mcp-for-snapchat setup` goes from nothing to a working server in one command. It asks for the Client ID and secret (the secret is hidden), opens the approval page, reads the code from the pasted address (checking it belongs to this attempt), lists the login's ad accounts to choose from, asks for the highest daily budget, main country and read-only mode, and adds the server to Claude Code (or prints the exact settings for other apps). Switching a file to another account clears the old account's pixel and brand profile.
