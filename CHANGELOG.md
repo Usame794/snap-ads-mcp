@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (2026-11-14)
+
+- Collection: product images are checked in the preview: they must be images, square (1:1) and at least 120x120 px. Snap refused 600x1000 images only at confirm time; now the preview says so before anything is sent. When Snap gives no size, the preview warns that the shape could not be checked.
+- Collection: the preview lists the main Snap and every product image with its id and size, so what is approved is visible.
+- Verified live on a real account: Collection creative (product tiles, product row, COLLECTION creative).
+
 ## 0.3.1 (2026-11-14)
 
 - New read-only tool `snap_list_media`: the account's images and videos (READY by default), newest first, filtered by type and name, across every page. Finding a media id for a Story, Collection or Snap no longer needs the raw API tool.

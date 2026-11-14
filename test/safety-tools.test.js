@@ -315,7 +315,7 @@ const WRITE_CALLS = (csv, img) => ({
   snap_create_ad: { creative_id: "cr1", adsquad_id: "s1", name: "Brand new ad" },
   snap_create_creative: { media_id: "m1", name: "Brand new creative", headline: "Hello", url: "https://example.com/" },
   snap_create_story_creative: { name: "Brand new story", headline: "Hello", creative_ids: ["cr1"], preview: { preview_media_id: "m1", preview_headline: "Tile" } },
-  snap_create_collection_creative: { name: "Brand new collection", top_snap_media_id: "m1", headline: "Hello", fallback_url: "https://example.com/", products: [1, 2, 3, 4].map((i) => ({ name: `P${i}`, image_media_id: "m1", url: `https://example.com/p${i}` })) },
+  snap_create_collection_creative: { name: "Brand new collection", top_snap_media_id: "m1", headline: "Hello", fallback_url: "https://example.com/", products: [1, 2, 3, 4].map((i) => ({ name: `P${i}`, image_media_id: "sq1", url: `https://example.com/p${i}` })) },
   snap_create_lookalike: { seed_segment_id: "111", name: "Lookalike buyers" },
   snap_create_pixel_audience: { name: "Cart 30d", events: ["ADD_CART"] },
   snap_claim_ad_code: { ad_code: AD_CODE },

@@ -23,7 +23,7 @@ import { ApprovalStore, digest, fingerprintOf, stabilizeState } from "./approval
 import { addedDailyBudgetInWindow, auditIntent, auditResult, redact, windowStartMicro } from "./audit-log.js";
 import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
-import { adTypeFor, buildCollectionCreative, buildCompositeCreative, buildCreativeElement, buildInteractionZone, buildPreviewCreative, buildSnapAdCreative, STORY_PART_TYPES, WEB_VIEW_CTAS } from "./formats.js";
+import { adTypeFor, checkProductImage, mediaSize, buildCollectionCreative, buildCompositeCreative, buildCreativeElement, buildInteractionZone, buildPreviewCreative, buildSnapAdCreative, STORY_PART_TYPES, WEB_VIEW_CTAS } from "./formats.js";
 
 const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 // A list result keeps its plain array shape; anything the reader must know (cut off, more than shown) goes in a second block.
@@ -754,7 +754,7 @@ export function registerTools(server, client, env = process.env) {
     "snap_create_collection_creative",
     {
       description:
-        "Create a Collection Ad creative: a main image or video plus 4-20 product tiles, each an image that opens its own https page, and a fallback page for a swipe on the main Snap. Creates the product tiles, the row that holds them and the COLLECTION creative; nothing delivers. Use the returned creative with snap_create_ad (ad type COLLECTION). Previews unless confirm=true.",
+        "Create a Collection Ad creative: a main image or video plus 4-20 product tiles, each a square image (1:1, at least 120x120 px) that opens its own https page, and a fallback page for a swipe on the main Snap. Creates the product tiles, the row that holds them and the COLLECTION creative; nothing delivers. Use the returned creative with snap_create_ad (ad type COLLECTION). Previews unless confirm=true.",
       shape: {
         name: z.string(),
         top_snap_media_id: id().describe("The main image or video (READY)"),
@@ -776,16 +776,41 @@ export function registerTools(server, client, env = process.env) {
       buildInteractionZone({ adAccountId, name: `${name} - products`, headline: button_label, creativeElementIds: products.map((_, i) => `placeholder-${i}`) });
       buildCollectionCreative({ adAccountId, profileId, name, topSnapMediaId: top_snap_media_id, headline, interactionZoneId: "placeholder", fallbackUrl: fallback_url });
       const media = {};
-      for (const mid of [top_snap_media_id, ...products.map((p) => p.image_media_id)]) {
-        if (media[mid]) continue;
-        const m = await getMedia(client, mid);
-        if (m.media_status !== "READY") throw new Error(`Media ${mid} is ${m.media_status}, not READY yet`);
-        media[mid] = m.media_status;
+      const read = async (mid) => {
+        if (!media[mid]) {
+          const m = await getMedia(client, mid);
+          if (m.media_status !== "READY") throw new Error(`Media ${mid} is ${m.media_status}, not READY yet`);
+          media[mid] = m;
+        }
+        return media[mid];
+      };
+      const main = await read(top_snap_media_id);
+      const warnings = [];
+      for (const p of products) {
+        const w = checkProductImage(await read(p.image_media_id), `Image of "${p.name}" (${p.image_media_id})`);
+        if (w) warnings.push(w);
       }
+      const sizeOf = (m) => {
+        const s = mediaSize(m);
+        return s ? `${s.width}x${s.height}` : "unknown";
+      };
       return {
         targetIds: Object.keys(media),
-        state: { media },
-        preview: { applied: false, dry_run: true, would_create: { collection: name, headline: headline.trim(), button_label, fallback_url, products: products.map((p) => ({ name: p.name, url: p.url })) }, note: "Nothing created. Re-run with confirm=true." },
+        state: { media: Object.fromEntries(Object.entries(media).map(([k, m]) => [k, m.media_status])) },
+        preview: {
+          applied: false,
+          dry_run: true,
+          would_create: {
+            collection: name,
+            headline: headline.trim(),
+            button_label,
+            fallback_url,
+            main_snap: { media_id: top_snap_media_id, type: main.type, size: sizeOf(main) },
+            products: products.map((p) => ({ name: p.name, url: p.url, image_media_id: p.image_media_id, image_size: sizeOf(media[p.image_media_id]) })),
+          },
+          ...(warnings.length ? { warnings } : {}),
+          note: "Nothing created. Re-run with confirm=true.",
+        },
         execute: async () => {
           const done = { product_tile_ids: [] };
           try {

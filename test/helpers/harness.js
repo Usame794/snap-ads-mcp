@@ -100,7 +100,7 @@ export function sampleWorld(extra = {}) {
     ads: { a1: a("a1", "s1"), a2: a("a2", "s2", { status: "PAUSED" }) },
     creatives: { cr1: { id: "cr1", name: "Creative one", type: "WEB_VIEW", ad_account_id: ACC, headline: "Hi", web_view_properties: { url: "https://example.com/" } } },
     segments: { 111: { id: "111", name: "Buyers", ad_account_id: ACC, source_type: "FIRST_PARTY" } },
-    media: { m1: { id: "m1", ad_account_id: ACC, media_status: "READY", type: "VIDEO" } },
+    media: { m1: { id: "m1", ad_account_id: ACC, media_status: "READY", type: "VIDEO" }, sq1: { id: "sq1", ad_account_id: ACC, media_status: "READY", type: "IMAGE", image_metadata: { width: 600, height: 600 } } },
     ...extra,
   };
 }
