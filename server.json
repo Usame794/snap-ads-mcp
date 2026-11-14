@@ -4,7 +4,7 @@
   "title": "Ads MCP for Snapchat",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "repository": {
-    "url": "https://github.com/Usame794/ads-mcp-for-snapchat",
+    "url": "https://github.com/Usame794/snap-ads-mcp",
     "source": "github"
   },
   "version": "0.4.1",

@@ -3,6 +3,7 @@
 ## 0.4.1 (2026-11-14)
 
 - Settings files: when a key appears twice, the last line now wins (as in dotenv), so a line added at the end, such as `SNAP_READ_ONLY=1`, takes effect. Saving a secret or token replaces every copy of that key, so an older duplicate can never win.
+- Package and registry links point to the repository's real name, `Usame794/snap-ads-mcp` (0.4.0 linked to a name that does not exist).
 - README: the second-account `claude mcp add` command had the server name after `-e`, which Claude Code rejects. Fixed, and it now starts the second account read-only with `-e SNAP_READ_ONLY=1`.
 
 ## 0.4.0 (2026-11-14)
@@ -10,7 +11,7 @@
 - Install from npm: `npx -y ads-mcp-for-snapchat` starts the server. `init`, `where`, `save-secret`, `auth`, `check` and `weekly-report` replace `node scripts/...` for installed copies; `help` lists them.
 - An installed copy keeps its settings, change log and exports in `~/.ads-mcp-for-snapchat` (or `SNAP_HOME`), never inside `node_modules`, so an update cannot erase them. A git checkout works exactly as before.
 - `server.json` for the official MCP Registry (`io.github.Usame794/ads-mcp-for-snapchat`).
-- The repository is now `Usame794/ads-mcp-for-snapchat`. Old links redirect.
+- Repository links point to `Usame794/snap-ads-mcp`.
 - Verified live on a real account: a COLLECTION ad (paused).
 
 ## 0.3.2 (2026-11-14)
