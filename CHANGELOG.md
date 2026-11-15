@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A GitHub Action builds the Claude Desktop file and creates the GitHub Release when a version tag is pushed.
+
 ## 0.9.2 (2026-11-15)
 
 - README: the "Not built" list no longer names things that now exist (product sets, dynamic product creatives, other ad squad goals); "Verified live" now says what the real-account `verify` run covered and what is still only tested against a fake Snap; the shared login is marked as not available until a service is deployed.
