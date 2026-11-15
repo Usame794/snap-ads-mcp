@@ -151,7 +151,10 @@ export async function landingPageReport(client, { adAccountId, requiredParams = 
     const missing = requiredParams.filter((p) => { try { return !new URL(r.url).searchParams.has(p); } catch { return true; } });
     return { ...r, ads: byUrl.get(r.url), ...(r.final_url && !sameHost(r.url, r.final_url) ? { lands_on_other_site: new URL(r.final_url).hostname } : {}), ...(missing.length ? { missing_params: missing } : {}) };
   });
-  const problems = rows.filter((r) => !["OK", "NOT_CHECKED"].includes(r.verdict) || r.missing_params || r.lands_on_other_site);
+  // A site answering 401, 403 or 429 to an automatic check usually blocks bots (found on a live shop): that says nothing about the
+  // link, so it is listed separately and never counted as a broken link.
+  const blocked = rows.filter((r) => r.verdict === "UNCHECKED");
+  const problems = rows.filter((r) => !["OK", "NOT_CHECKED", "UNCHECKED"].includes(r.verdict) || r.missing_params || r.lands_on_other_site);
   const counts = {};
   for (const r of rows) counts[r.verdict] = (counts[r.verdict] ?? 0) + 1;
   const outOfTime = timeUp();
@@ -166,7 +169,8 @@ export async function landingPageReport(client, { adAccountId, requiredParams = 
     ...(campaigns.complete ? {} : { warning_incomplete: "The campaign list was INCOMPLETE; some ads were not looked at." }),
     by_verdict: counts,
     problems,
-    all_links_ok: !problems.length && !outOfTime,
+    ...(blocked.length ? { could_not_check: blocked.map((r) => ({ url: r.url, status: r.status, ads: r.ads })), could_not_check_note: `${blocked.length} link(s) were answered with ${[...new Set(blocked.map((r) => r.status))].join("/")} by the website itself, which usually means it blocks automatic checks (bot protection). The links may work fine for people: open one yourself. They are not counted as broken.` } : {}),
+    all_links_ok: !problems.length && !outOfTime && !blocked.length,
     not_checked: "Only whether the page opens is checked. A page that opens but shows 'out of stock' or an error message inside is not detected. Catalog, Story, Snap-only and app creatives have no web link to check. Only ACTIVE ads of ACTIVE ad squads are read.",
   };
 }

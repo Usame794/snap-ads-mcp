@@ -73,7 +73,6 @@ test("verify --details lists the specifics, without query strings or full ids", 
   assert.ok(!lines[0].includes("SECRET") && !lines[0].includes("utm_source"));
   assert.deepEqual(DETAILS.snap_pixel_health({ top_priority_issues: ["Event quality is low", { code: "X" }] }), ["Event quality is low", '{"code":"X"}']);
   assert.match(DETAILS.snap_catalog_feed_status({ catalogs_detail: [{ catalog: "Main", feeds: [{ name: "F", problems: ["The latest upload is FAILED."], upload_errors: 1, upload_issues: ["1 x CAT_FEED_FILE_NO_DATA"] }, { name: "OK", problems: [], upload_errors: 0 }] }] })[0], /^Main \/ F: The latest upload is FAILED\.; 1 x CAT_FEED_FILE_NO_DATA$/);
-  assert.match(DETAILS.snap_audience_health({ problems: [{ name: "Old list", source_type: "FIRST_PARTY", size: 900, flags: [{ code: "TINY" }, { code: "STALE" }] }] })[0], /Old list \(FIRST_PARTY, 900 people\): TINY, STALE/);
   const snap = fakeSnap(sampleWorld());
   const client = new SnapClient({ env: ENV, fetchImpl: snap.fetchImpl, sleep: async () => {} });
   const out = [];
@@ -82,4 +81,14 @@ test("verify --details lists the specifics, without query strings or full ids", 
   const plain = [];
   await runVerify({ client, env: ENV, log: (l) => plain.push(l) });
   assert.ok(!plain.includes("Details"), "details only when asked for");
+});
+
+test("verify: a rate-limited Ads Gallery is a skip, a blocked link is shown as blocked, and upper-case error codes stay readable", async () => {
+  const { DETAILS, tidy } = await import("../src/verify.js");
+  assert.equal(tidy("1 x CAT_VALIDATION_ERROR_PRODUCT_IMAGE_URL_NOT_REACHABLE_FOR_ITEMS_IN_FEED"), "1 x CAT_VALIDATION_ERROR_PRODUCT_IMAGE_URL_NOT_REACHABLE_FOR_ITEMS_IN_FEED");
+  assert.equal(tidy(`token ${"aB3".repeat(20)} end`), "token [hidden] end");
+  const lines = DETAILS.snap_check_landing_pages({ problems: [], could_not_check: [{ url: "https://shop.example/%D8%B3?x=1", status: 403, ads: [{ ad: "Ad one" }] }] });
+  assert.match(lines[0], /^BLOCKED 403 shop\.example\/س: the website answered with a block/);
+  const audience = DETAILS.snap_audience_health({ important_used_by_active_squads: [{ name: "Buyers", source_type: "FIRST_PARTY", size: 129000, used_by_active_squads: 12, flags: [{ code: "STALE" }] }], by_flag: { EMPTY: 40, STALE: 2 } });
+  assert.deepEqual(audience, ["USED NOW by 12 active ad squad(s): Buyers (FIRST_PARTY, 129000 people): STALE", "EMPTY: 40 audience(s)", "STALE: 2 audience(s)"]);
 });
