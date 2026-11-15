@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: the "Not built" list no longer names things that now exist (product sets, dynamic product creatives, other ad squad goals); "Verified live" now says what the real-account `verify` run covered and what is still only tested against a fake Snap; the shared login is marked as not available until a service is deployed.
 - `snap_check_landing_pages`: a website that answers 401, 403 or 429 to the check (bot protection; found on a live shop) is listed apart as "could not check" and never counted as a broken link.
 - `snap_audience_health`: audiences with nobody in them are flagged EMPTY (not TINY), counted by flag, and problems on audiences that an ACTIVE ad squad uses right now (for example a stale buyer list used for exclusion) are listed first.
 - `verify`: a rate-limited public Ads Gallery is a skip, long upper-case error codes stay readable, percent-encoded link paths are decoded for display.

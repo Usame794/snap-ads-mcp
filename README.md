@@ -30,7 +30,9 @@ In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_
 `npx -y ads-mcp-for-snapchat verify` (or `node src/cli.js verify` in a git checkout; add `--details` to also list the specific problems it found: broken links, pixel issues, feed errors, audience problems, rejected ads) runs every read-only tool on your real account, one by one, and prints a short list: what worked, what failed and why, what was skipped (and which setting it needs). It changes nothing: it only calls tools that declare themselves read-only and forces read-only mode. The output contains no tokens and only shortened ids, so it is safe to paste into an issue.
 
 ## Easiest: log in with Snapchat (no OAuth app)
-When a login service is available (see `broker/README.md` and `PRIVACY.md`), you do not need to create a Snapchat OAuth app. Run `npx -y ads-mcp-for-snapchat setup` and choose **1. Shared login**, or install the Claude Desktop file, leave Client ID and secret empty, and ask Claude: "Connect my Snapchat ad account." You log in with Snapchat in your browser and pick your ad account. The service only passes your login along: it stores nothing, and your access is sealed so only your own computer can read it. Prefer to stay independent? Use your own app (next section), or run your own copy of the service.
+**Not available yet.** The code is built and tested, but no shared login service has been deployed and Snap has not yet been asked whether a shared app may serve other advertisers. Until then, connect with your own Snapchat app (next section: about 5 minutes, and `setup` walks you through it).
+
+Once a service exists (see `broker/README.md` and `PRIVACY.md`; you can also run your own), you will not need an OAuth app: run `npx -y ads-mcp-for-snapchat setup` and choose **1. Shared login**, or install the Claude Desktop file, leave Client ID and secret empty, and ask Claude: "Connect my Snapchat ad account." You log in with Snapchat in your browser and pick your ad account. The service only passes your login along: it stores nothing, and your access is sealed so only your own computer can read it.
 
 ## Easy setup (about 5 minutes)
 First, once: in [Snap Business Manager](https://business.snapchat.com) open **Business Details > OAuth Apps > + OAuth App**, use the Redirect URI `https://127.0.0.1/callback`, and copy the **Client ID** and **Client Secret** (the secret is shown only once).
@@ -200,7 +202,7 @@ From an npm install, use `npx -y ads-mcp-for-snapchat check | weekly-report` ins
 ## Requirements
 Node 18+ and a Snapchat Ads account with permission to create an OAuth app. Install dependencies with `npm install`. Run the tests with `npm test` (all mocked, no credentials needed).
 
-Each user runs this server locally with their own OAuth app and their own ad account. Nothing is shared or hosted.
+Each user runs this server locally with their own ad account, and (for now) their own OAuth app. Nothing about your ad account is hosted or shared; the optional login service (see above) only handles the Snapchat login.
 
 ## Setup (one time)
 1. In Snap Ads Manager open **Business Details > OAuth Apps** and create an app. Redirect URL must be https and not `localhost`, for example `https://127.0.0.1/callback`. **The client secret is shown once**: select it and copy it before leaving the page.
@@ -268,11 +270,17 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 
 **Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 
-**Not verified live:** everything added in 0.6.0 and 0.7.0 (`snap_audience_size`, `snap_spend_pacing`, `snap_ad_preview`; catalog ads; bid-strategy switching, placement and the portfolio summary; the landing page, anomaly, blended ROAS, audience insights, competitor ads, Conversions API test, hourly, creative comparison, budget advice, billing, unused media, audience health, funnel and feed tools; frequency cap and ad schedule; the new ad squad goals), all built from Snap's documentation and mocked tests, the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
+**Read-only run of `verify` on the maintainer's real ad account (November 2026, 23 of 24 tools worked):** `snap_ping`; the campaign, ad squad, media and audience lists; spend pacing; anomaly check; funnel; hourly report; billing check; audience health; unused media; budget advice; landing page check; health check; review issues; dynamic template list; catalog feed status; pixel health; audience size; audience insights; and the public Ads Gallery lookup. That run found real bugs that mocked tests could not (Snap's account-level stats accept only the `spend` field; the landing page check read too much; a shop's bot protection answered 403), all fixed in 0.9.1 and after.
+
+**Not verified live:**
+- Everything that **writes** and was added in 0.7.0 or later: catalog ad creation (product sets, templates, campaign, ad squad, creative, ad), frequency cap, ad schedule, placement, bid-strategy switching, and the new ad squad goals. Built from Snap's documentation and mocked tests.
+- The Conversions API test tools (they need a Conversions API token: `SNAP_CAPI_TOKEN`), the portfolio summary (needs a second settings file), blended ROAS (needs your store's revenue), creative comparison, ad preview, and the playbooks.
+- The shared login service against the real Snapchat login (it is tested against a fake one; deploy it and follow `broker/README.md` step 5).
+- The 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
-- A hosted multi-user version (this server runs on your own machine with your own credentials).
-- Lens, App Install, Deep Link, lead-form and dynamic product creatives, product set creation, ad squad types other than purchase-optimized web squads, custom location/radius targeting, lifetime or reach-and-frequency budgets, and position-level reports.
+- A hosted multi-user MCP server, which ChatGPT would need. The optional shared login service (`broker/`) only passes Snapchat logins along; the tool itself always runs on your own computer.
+- Lens, App Install, Deep Link and lead-form creatives; ad squad goals for app installs and lead generation; custom location and radius targeting; reach-and-frequency budgets; position-level reports; custom placement on ad squads that use content inclusion or exclusion lists; switching an ad squad to auto-bid (it would remove the bid cap).
 - Anything that spends money without a separate, explicit enable step.
 
 ## Development
