@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `verify` command: runs every read-only tool on your real account and prints what worked, what failed (with a short, tidy reason) and what was skipped. It only calls tools that declare themselves read-only and forces read-only mode; a test checks it sends nothing but GETs and the two read-only POSTs (audience size and insights).
+- `broker/ASK-SNAP.md`: the message to send to Snap before announcing the shared login.
+
 ## 0.9.0 (2026-11-15)
 
 - **Shared login (log in with Snapchat, no OAuth app).** `setup` offers it first; in Claude Desktop leave the Client ID and secret empty and ask Claude to connect: the browser finishes the login by itself, nothing is pasted. A small stateless login service (`broker/`, a Cloudflare Worker) holds one shared app's secret and nothing else. It stores no tokens, accounts or logs: at login it seals the refresh token to a key made on the person's own computer and redirects only to `http://127.0.0.1:<port>` (checked), and later it only swaps a refresh token for a 30-minute access token. Using your own Snapchat app still works exactly as before and always wins when its secret is present.
