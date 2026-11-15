@@ -1,5 +1,5 @@
 // The verify command: it only calls read-only tools, forces read-only mode, hides ids and tokens, and reports honestly.
-import { test } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,19 @@ import { join } from "node:path";
 import { checksFor, runVerify, tidy } from "../src/verify.js";
 import { SnapClient } from "../src/snap.js";
 import { ACC, fakeSnap, sampleWorld } from "./helpers/harness.js";
+
+// The public Ads Gallery is the one call that does not go through the fake Snap: stand in for it so no test touches the internet.
+const realFetch = globalThis.fetch;
+const stubGallery = () => {
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /^https:\/\/adsapi\.snapchat\.com\/v1\/ads_library\//, `unexpected network call: ${url}`);
+    return { ok: true, status: 200, json: async () => ({ request_status: "SUCCESS", ad_previews: [] }) };
+  };
+};
+beforeEach(stubGallery);
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
 
 const ENV = { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "r", SNAP_AD_ACCOUNT_ID: ACC, SNAP_DEFAULT_COUNTRY: "sa", SNAP_BRAND_PROFILE_ID: "p", SNAP_LOG_FILE: join(mkdtempSync(join(tmpdir(), "verify-")), "log.jsonl") };
 
@@ -24,7 +37,7 @@ test("every check names a read-only tool that exists, and settings-dependent one
   const names = checksFor({ start: "s", end: "e", hasPixel: true, hasCountry: true }).map((c) => c.tool);
   assert.equal(new Set(names).size, names.length, "no tool twice");
   assert.deepEqual(results.map((r) => r.tool), checksFor({ start: "s", end: "e", hasPixel: false, hasCountry: false }).map((c) => c.tool));
-  assert.ok(results.every((r) => r.status !== "SKIP" || /needs SNAP_|not read-only|not available/.test(r.detail)), "a skip always says why");
+  assert.ok(results.every((r) => r.status !== "SKIP" || /needs SNAP_|not read-only|not available|rate-limited/.test(r.detail)), "a skip always says why");
   assert.match(results.find((r) => r.tool === "snap_audience_size").detail, /needs SNAP_DEFAULT_COUNTRY/);
   assert.match(results.find((r) => r.tool === "snap_pixel_health").detail, /needs SNAP_PIXEL_ID/);
   assert.ok(!results.some((r) => r.status === "SKIP" && r.detail === "tool is not available"), "no check refers to a tool that does not exist");
