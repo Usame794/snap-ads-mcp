@@ -18,7 +18,7 @@ test("every tool is described in the README, and the README states the right too
 });
 
 test("every SNAP_ setting the code reads is documented in the README or .env.example", () => {
-  const code = ["policy.js", "tools.js", "env.js", "index.js", "portfolio.js", "snap.js", "setup.js", "cli.js"].map((f) => read(`src/${f}`)).join("\n");
+  const code = ["policy.js", "tools.js", "env.js", "index.js", "portfolio.js", "snap.js", "setup.js", "cli.js", "broker.js"].map((f) => read(`src/${f}`)).join("\n");
   const used = new Set([...code.matchAll(/\b(SNAP_[A-Z0-9_]+)\b/g)].map((m) => m[1]));
   const docs = `${read("README.md")}\n${read(".env.example")}`;
   const internal = ["SNAP_ENV_FILE", "SNAP_HOME", "SNAP_LOG_FILE"]; // documented in their own sections; checked below
@@ -30,7 +30,7 @@ test("every SNAP_ setting the code reads is documented in the README or .env.exa
 test("SECURITY.md lists the outside addresses the server contacts", () => {
   const sec = read("SECURITY.md");
   for (const host of ["adsapi.snapchat.com", "accounts.snapchat.com", "tr.snapchat.com"]) assert.ok(sec.includes(host), host);
-  const code = ["snap.js", "intel.js", "checks.js", "oauth.js"].map((f) => read(`src/${f}`)).join("\n");
+  const code = ["snap.js", "intel.js", "checks.js", "oauth.js", "broker.js"].map((f) => read(`src/${f}`)).join("\n");
   const hosts = new Set([...code.matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/g)].map((m) => m[1]));
   const allowed = ["adsapi.snapchat.com", "accounts.snapchat.com", "tr.snapchat.com", "ad-preview.snapchat.com", "ads-interfaces.sc-cdn.net", "snap.com", "developers.snap.com"];
   assert.deepEqual([...hosts].filter((h) => !allowed.includes(h) && !h.endsWith("example.com") && !h.endsWith("example")), [], "a new outside address must be reviewed and added to SECURITY.md");

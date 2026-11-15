@@ -15,6 +15,7 @@ import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS, SWIPE_WINDOW
 import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.js";
 import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
+import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
 import { toolAllowed } from "./toolsets.js";
@@ -287,6 +288,7 @@ export function registerTools(server, client, env = process.env) {
   // settings, never from the chat. The authorization code that passes through the chat is single-use, expires in minutes and
   // is useless without the secret. The refresh token is saved to the settings file and never returned.
   let pendingState = null;
+  let pendingShared = null; // a shared login in progress: { link, token, error }
   server.registerTool(
     "snap_connect",
     {
@@ -298,11 +300,40 @@ export function registerTools(server, client, env = process.env) {
     async ({ redirected_url, ad_account_id }) => {
       try {
         const e = client.env;
-        if (!e.SNAP_CLIENT_ID || !e.SNAP_CLIENT_SECRET) {
+        const file = envFile();
+        // The shared login: no Client ID or secret on this computer. The browser sends the sealed token to a listener this
+        // server opens on 127.0.0.1, so nothing has to be pasted into the chat.
+        const shared = !e.SNAP_CLIENT_SECRET ? brokerUrlFrom(e) : null;
+        if (shared && !ad_account_id) {
+          if (redirected_url) throw new Error("This connection uses the shared login: no address needs to be pasted. Open the link, log in, then call snap_connect again with no arguments.");
+          if (pendingShared?.token) {
+            const token = pendingShared.token;
+            pendingShared = null;
+            setEnvValue("SNAP_BROKER_URL", shared, file);
+            setEnvValue("SNAP_REFRESH_TOKEN", token, file);
+            e.SNAP_BROKER_URL = shared;
+            e.SNAP_REFRESH_TOKEN = token;
+            client.token = null;
+            client.tokenExpiry = 0;
+            const accounts = await listAdAccounts(client);
+            return asResult({ step: 2, connected: true, saved_to: file, ad_accounts: accounts, next: accounts.length ? "Ask the person which ad account to use, then call snap_connect with its ad_account_id." : "This login sees no ad account. The account admin must add it first." });
+          }
+          if (pendingShared?.error) {
+            const why = pendingShared.error;
+            pendingShared = null;
+            throw new Error(`The login did not finish: ${why}. Call snap_connect again to get a new link.`);
+          }
+          if (pendingShared) return asResult({ step: 1, waiting: true, link: pendingShared.link, tell_the_person: "Still waiting. Open the link, log in to Snapchat and click Continue. Then say so and call snap_connect again." });
+          const login = await startBrokerLogin({ brokerUrl: shared });
+          const entry = { link: login.url, token: null, error: null };
+          pendingShared = entry;
+          login.done.then((t) => (entry.token = t), (err) => (entry.error = String(err?.message ?? err)));
+          return asResult({ step: 1, link: login.url, tell_the_person: "Open this link, log in to Snapchat and click Continue. The browser then says Connected. Tell me when that is done and I will call snap_connect again." });
+        }
+        if (!shared && (!e.SNAP_CLIENT_ID || !e.SNAP_CLIENT_SECRET)) {
           throw new Error("The Client ID and Client Secret are not set. Enter them in the extension's settings (Claude Desktop: Settings > Extensions > Ads MCP for Snapchat), or run: npx -y ads-mcp-for-snapchat setup");
         }
         const redirectUri = e.SNAP_REDIRECT_URI || DEFAULT_REDIRECT;
-        const file = envFile();
         if (ad_account_id) {
           const accounts = await listAdAccounts(client);
           const chosen = accounts.find((a) => a.id === ad_account_id);

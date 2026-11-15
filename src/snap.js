@@ -1,4 +1,5 @@
 // Thin client for the Snapchat Marketing API (https://adsapi.snapchat.com/v1).
+import { brokerUrlFrom, refreshViaBroker } from "./broker.js";
 const API = "https://adsapi.snapchat.com/v1";
 const TOKEN_URL = "https://accounts.snapchat.com/login/oauth2/access_token";
 const TR = "https://tr.snapchat.com"; // Conversions API test-event tools
@@ -195,8 +196,18 @@ export class SnapClient {
     if (this.token && Date.now() < this.tokenExpiry - 60_000) return this.token;
     this.beforeToken?.();
     const { SNAP_CLIENT_ID, SNAP_CLIENT_SECRET, SNAP_REFRESH_TOKEN } = this.env;
+    // Shared login: no app secret on this computer; the login service holds it and swaps the refresh token.
+    if (SNAP_REFRESH_TOKEN && !SNAP_CLIENT_SECRET) {
+      const broker = brokerUrlFrom(this.env);
+      if (broker) {
+        const data = await refreshViaBroker(broker, SNAP_REFRESH_TOKEN, this.fetch);
+        this.token = data.access_token;
+        this.tokenExpiry = Date.now() + (data.expires_in ?? 1800) * 1000;
+        return this.token;
+      }
+    }
     if (!SNAP_CLIENT_ID || !SNAP_CLIENT_SECRET || !SNAP_REFRESH_TOKEN) {
-      throw new Error("Missing SNAP_CLIENT_ID, SNAP_CLIENT_SECRET or SNAP_REFRESH_TOKEN. Fill in .env (see .env.example).");
+      throw new Error("Missing SNAP_CLIENT_ID, SNAP_CLIENT_SECRET or SNAP_REFRESH_TOKEN. Run `npx -y ads-mcp-for-snapchat setup` (see .env.example).");
     }
     const res = await this.fetchRetry(TOKEN_URL, {
       method: "POST",

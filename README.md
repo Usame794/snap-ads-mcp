@@ -26,6 +26,9 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 
 In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Find media already in the account with `snap_list_media`, or upload with `snap_upload_media` and wait until `snap_get_media` says READY.
 
+## Easiest: log in with Snapchat (no OAuth app)
+When a login service is available (see `broker/README.md` and `PRIVACY.md`), you do not need to create a Snapchat OAuth app. Run `npx -y ads-mcp-for-snapchat setup` and choose **1. Shared login**, or install the Claude Desktop file, leave Client ID and secret empty, and ask Claude: "Connect my Snapchat ad account." You log in with Snapchat in your browser and pick your ad account. The service only passes your login along: it stores nothing, and your access is sealed so only your own computer can read it. Prefer to stay independent? Use your own app (next section), or run your own copy of the service.
+
 ## Easy setup (about 5 minutes)
 First, once: in [Snap Business Manager](https://business.snapchat.com) open **Business Details > OAuth Apps > + OAuth App**, use the Redirect URI `https://127.0.0.1/callback`, and copy the **Client ID** and **Client Secret** (the secret is shown only once).
 
@@ -83,6 +86,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_MAX_ADDED_DAILY_BUDGET_24H` | 2 x the line above | Most daily budget this server may add to the account in any 24 hours, all tools together: budgets it starts plus budget increases |
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
+| `SNAP_BROKER_URL` | (none) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
 | `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
 | `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `setup, read, reports, checks, changes, create` (comma-separated). Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 (2026-11-15)
+
+- **Shared login (log in with Snapchat, no OAuth app).** `setup` offers it first; in Claude Desktop leave the Client ID and secret empty and ask Claude to connect: the browser finishes the login by itself, nothing is pasted. A small stateless login service (`broker/`, a Cloudflare Worker) holds one shared app's secret and nothing else. It stores no tokens, accounts or logs: at login it seals the refresh token to a key made on the person's own computer and redirects only to `http://127.0.0.1:<port>` (checked), and later it only swaps a refresh token for a 30-minute access token. Using your own Snapchat app still works exactly as before and always wins when its secret is present.
+- The login is protected by a signed state (no storage), a cookie that ties it to the browser that started it, an expiry, a loopback-only redirect, a nonce-bound sealed token, and a listener on the computer that checks the Host header and accepts one callback only.
+- New: `PRIVACY.md`, `broker/README.md` (how to deploy and what to check before announcing it), `SNAP_BROKER_URL`, `adsMcpBroker` in `package.json` (the default service address, empty until one is deployed).
+- Not yet run against the real Snapchat login: the service is tested against a fake one. Follow `broker/README.md` step 5 before announcing it. ChatGPT support is not part of this: ChatGPT needs a hosted MCP server.
+
 ## Unreleased
 
 - Docs: `SECURITY.md` now lists every outside address the server contacts and what is sent. New tests fail when a tool or a `SNAP_` setting is missing from the README, or when the code starts contacting an address that `SECURITY.md` does not list. `SNAP_HOME` was missing from the README and is now documented.
