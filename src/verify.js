@@ -68,7 +68,9 @@ export async function runVerify({ client, env = process.env, now = new Date(), l
       try {
         const r = await mcp.callTool({ name: c.tool, arguments: c.args }, undefined, { timeout: 5 * 60_000 });
         const text = r.content?.[0]?.text ?? "";
-        if (r.isError) row = { tool: c.tool, status: "FAIL", detail: tidy(text) };
+        // Snap refusing the normal login for the Conversions API test tools is a missing setting, not a fault.
+        if (r.isError && c.tool.startsWith("snap_capi_") && /refused the token for the Conversions API/.test(text) && !settings.SNAP_CAPI_TOKEN) row = { tool: c.tool, status: "SKIP", detail: "needs SNAP_CAPI_TOKEN: a Conversions API token from Ads Manager (Events Manager > Conversions API > Generate token). Optional." };
+        else if (r.isError) row = { tool: c.tool, status: "FAIL", detail: tidy(text) };
         else {
           let data = null;
           try {
