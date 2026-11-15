@@ -109,6 +109,9 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_ad_preview` | read: a no-login preview link (90 days) and a Snapcode to scan on a phone (7 days) |
 | `snap_list_dynamic_templates` | read: the ad account's dynamic templates (product layouts for catalog ads) |
 | `snap_create_product_set`, `snap_create_dynamic_template` | write (preview + approval): a filtered group of catalog products; a product layout |
+| `snap_check_landing_pages` | read: opens each active ad's link once (https only, never private addresses) and flags broken, slow, server-error and non-https links, links that end on another site, and links missing parameters you name |
+| `snap_anomaly_check` | read: yesterday vs the usual day: spend spike or drop, zero or falling purchases (possible broken pixel), ROAS drop, cost-per-purchase spike |
+| `snap_blended_roas` | read: Snap's reported revenue vs the revenue your store confirms (you give the store figure): overstates, understates or consistent |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |

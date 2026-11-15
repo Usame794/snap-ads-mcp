@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `snap_check_landing_pages`: opens each active ad's link once (https only, never private or link-local addresses, every redirect checked) and reports broken, slow, server-error, unreachable and non-https links, links that end on another site, and links missing parameters you name (for example `utm_source`). It cannot see "out of stock" text inside a page that opens.
+- `snap_anomaly_check`: the last full local day against the usual day, account level: spend spike or drop, zero or falling purchases (possible broken pixel or store), ROAS drop, cost-per-purchase spike.
+- `snap_blended_roas`: Snap's reported revenue against the revenue your store confirms, with both ROAS figures and a verdict.
+- The Weekly review and Launch checklist playbooks use the new checks.
+- Built from Snap's documentation and mocked tests; not yet verified live.
 - Catalog ads (Dynamic Product Ads): `snap_create_product_set` (Snap's filter rules checked before anything is sent), `snap_create_dynamic_template`, `snap_list_dynamic_templates`; `snap_create_campaign` takes `catalog_id`; `snap_create_adsquad` takes `product_set_id`, `dpa_mode` (retargeting / prospecting) and `audience_days`; `snap_create_creative` takes `creative_type: DYNAMIC_PRODUCT`; `snap_create_ad` creates the DYNAMIC ad and refuses a creative whose product set differs from the ad squad's. Catalogs and templates must belong to the ad account's organization / account. Everything is created PAUSED and the money limits apply. Built from Snap's guide and mocked tests; not yet verified live.
 
 ## 0.6.0 (2026-11-14)

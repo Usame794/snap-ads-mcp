@@ -15,6 +15,7 @@ import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS, SWIPE_WINDOW
 import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.js";
 import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
+import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
 import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
 import { registerPrompts } from "./prompts.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
@@ -624,6 +625,36 @@ export function registerTools(server, client, env = process.env) {
       shape: { ad_id: id().optional(), creative_id: id().optional() },
     },
     ({ ad_id, creative_id }) => adPreview(client, { adId: ad_id, creativeId: creative_id }),
+  );
+
+  read(
+    "snap_check_landing_pages",
+    {
+      description:
+        "Check that the web pages your ACTIVE ads send people to actually open (read-only; changes nothing in Snap). Each distinct link is opened once from this computer, over https only and never to private addresses; redirects are followed and checked. Flags broken (404), server errors, slow, unreachable and non-https links, and links that end up on another site. Optional required_params (e.g. [\"utm_source\"]) flags links that lack them. It cannot see 'out of stock' text inside a page that opens.",
+      shape: { required_params: z.array(z.string().regex(/^[A-Za-z0-9_.-]{1,40}$/)).max(10).optional(), max_links: z.number().int().min(1).max(300).default(100) },
+    },
+    ({ required_params, max_links }) => landingPageReport(client, { adAccountId: account(), requiredParams: required_params ?? [], maxUrls: max_links }),
+  );
+
+  read(
+    "snap_anomaly_check",
+    {
+      description:
+        "Did something change sharply yesterday? (read-only) Compares the last full local day with the usual day (the average of the days before the last two): spend spike or drop, zero or falling purchases (possible broken pixel or store), ROAS drop, cost-per-purchase spike. Account level. Days follow SNAP_REPORT_UTC_OFFSET; today is left out.",
+      shape: { baseline_days: z.number().int().min(3).max(29).default(7), min_daily_spend: z.number().positive().default(20).describe("Below this usual daily spend nothing is judged") },
+    },
+    ({ baseline_days, min_daily_spend }) => anomalyCheck(client, { adAccountId: account(), offset: policy.reportUtcOffset, baselineDays: baseline_days, minSpend: min_daily_spend }),
+  );
+
+  read(
+    "snap_blended_roas",
+    {
+      description:
+        "Compare Snap's reported revenue with the revenue your store confirms (read-only). Give store_revenue: what your store credits to Snapchat (for example Shopify or Google Analytics with utm_source=snapchat) for the same days and currency. Window: the last `days` full local days, or start_date and end_date (YYYY-MM-DD, both included, up to 31 days). Says whether Snap overstates, understates or is consistent, with both ROAS figures. Optional store_orders adds the store's cost per order.",
+      shape: { store_revenue: z.number().positive(), store_orders: z.number().int().positive().optional(), days: z.number().int().min(1).max(31).default(7), start_date: z.string().optional(), end_date: z.string().optional() },
+    },
+    ({ store_revenue, store_orders, days, start_date, end_date }) => blendedRoas(client, { adAccountId: account(), offset: policy.reportUtcOffset, storeRevenue: store_revenue, storeOrders: store_orders, days, startDate: start_date, endDate: end_date }),
   );
 
   registerPrompts(server);
