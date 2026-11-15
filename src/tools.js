@@ -4,7 +4,7 @@ import { z } from "zod";
 import { SnapClient } from "./snap.js";
 import { envFile, setEnvValue } from "./env.js";
 import { authorizeUrl, DEFAULT_REDIRECT, exchangeCode, extractCode, listAdAccounts, newState } from "./oauth.js";
-import { executeChange, LOG_FILE, planBid, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, prepareChange, previewOf, readLog, undoableEntries } from "./changes.js";
+import { executeChange, LOG_FILE, BID_STRATEGIES, planBid, planBidStrategy, planBudget, planExcludeSegments, planRename, planSchedule, planStatus, planTargeting, planUndo, prepareChange, previewOf, readLog, undoableEntries } from "./changes.js";
 import { executeBulkEdit, plans, prepareBulkEdit } from "./bulk-edit.js";
 import { runBatch, checkBatch } from "./influencer-batch.js";
 import { createWithAutoStrip, planCloneCreative } from "./creative-tools.js";
@@ -18,9 +18,10 @@ import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativePr
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
 import { toolAllowed } from "./toolsets.js";
+import { parsePortfolioFiles, portfolioSummary } from "./portfolio.js";
 import { audienceHealth, billingCheck, feedStatus, funnelReport, unusedMedia } from "./hygiene.js";
 import { budgetAdvice, creativeCompare, hourlyReport } from "./advice.js";
-import { CAP_UNITS, planAdSchedule, planFrequencyCap } from "./controls.js";
+import { CAP_UNITS, PLACEMENT_POSITIONS, planAdSchedule, planFrequencyCap, planPlacement } from "./controls.js";
 import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
 import { registerPrompts } from "./prompts.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
@@ -811,6 +812,19 @@ export function registerTools(server, client, env = process.env) {
     async ({ organization_id }) => feedStatus(client, { organizationId: organization_id ?? (await accountOrg()) }),
   );
 
+  read(
+    "snap_portfolio_summary",
+    {
+      description: "All your ad accounts side by side (read-only): for each account yesterday and the last 7 days (spend, purchases, ROAS, cost per purchase), what needs attention, and totals per currency. It reads the accounts whose settings files the server's owner listed in SNAP_PORTFOLIO_FILES; the AI app cannot choose files. Only account-level numbers are returned.",
+      shape: {},
+    },
+    async () => {
+      const files = parsePortfolioFiles(env.SNAP_PORTFOLIO_FILES);
+      if (!files.length) return { configured: false, how_to: "Set SNAP_PORTFOLIO_FILES in this server's settings to the absolute paths of the settings files of your accounts, separated by commas (for example /Users/me/ads/.env,/Users/me/ads/.env.account2), then restart. This server's own file may be included." };
+      return portfolioSummary({ files, defaultOffset: policy.reportUtcOffset });
+    },
+  );
+
   registerPrompts(server);
 
   read(
@@ -1274,6 +1288,25 @@ export function registerTools(server, client, env = process.env) {
       },
     },
     ({ adsquad_id, schedule, always }) => change("adsquad", adsquad_id, (cur) => planAdSchedule(cur, { schedule, always })),
+  );
+
+  write(
+    "snap_set_bid_strategy",
+    {
+      description: "Switch an ad squad between max bid (LOWEST_COST_WITH_MAX_BID) and target cost (TARGET_COST), with the bid for the new strategy. An ad squad on auto-bid may be switched to one of these (it adds a bid cap). Switching TO auto-bid is not offered because it would remove the bid cap. The bid follows the same limits as snap_set_bid (absolute SNAP_MAX_BID, +50% per step and per 24 hours). Previews unless confirm=true.",
+      shape: { adsquad_id: id(), strategy: z.enum(BID_STRATEGIES), bid: z.number().positive().describe("Account currency: the max bid, or the target cost") },
+      destructive: true,
+    },
+    ({ adsquad_id, strategy, bid }) => change("adsquad", adsquad_id, (cur) => planBidStrategy(cur, { strategy, bid }, policy, { history })),
+  );
+
+  write(
+    "snap_set_placement",
+    {
+      description: `Choose where on Snapchat an ad squad's ads may appear: automatic (everywhere) or custom positions (${PLACEMENT_POSITIONS.join(", ")}; CHAT_FEED must come with INTERSTITIAL_CONTENT or INTERSTITIAL_USER). Fewer placements usually mean less reach and a higher cost. Refused on ad squads that use content inclusion or exclusion lists. Undo works when a placement was set before. Previews unless confirm=true.`,
+      shape: { adsquad_id: id(), mode: z.enum(["automatic", "custom"]), positions: z.array(z.enum(PLACEMENT_POSITIONS)).max(7).optional() },
+    },
+    ({ adsquad_id, mode, positions }) => change("adsquad", adsquad_id, (cur) => planPlacement(cur, { mode, positions })),
   );
 
   write(
