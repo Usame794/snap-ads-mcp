@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `snap_audience_insights`: who is in an audience (Snap's Audience Insights): which age groups, genders, languages, interests and devices appear more or less than in everyone in the same countries.
+- `snap_competitor_ads`: a company's ads from Snap's public Ads Gallery. No login is used and nothing about your account is sent. Ad text is returned cut and marked as untrusted data.
+- `snap_capi_status` and `snap_capi_test_event`: Conversions API test events. The status tool reads the last 24 hours of test events and Snap's reasons for invalid ones; the test tool sends one previewed test event to the validate endpoint, with the email hashed locally. There is deliberately no tool that sends real conversion events.
+- Audit log: emails and phone numbers are now removed from logged tool arguments (by key and inside text), as credentials already were.
 - `snap_check_landing_pages`: opens each active ad's link once (https only, never private or link-local addresses, every redirect checked) and reports broken, slow, server-error, unreachable and non-https links, links that end on another site, and links missing parameters you name (for example `utm_source`). It cannot see "out of stock" text inside a page that opens.
 - `snap_anomaly_check`: the last full local day against the usual day, account level: spend spike or drop, zero or falling purchases (possible broken pixel or store), ROAS drop, cost-per-purchase spike.
 - `snap_blended_roas`: Snap's reported revenue against the revenue your store confirms, with both ROAS figures and a verdict.

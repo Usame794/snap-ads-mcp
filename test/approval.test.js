@@ -64,6 +64,15 @@ test("audit log: credentials are removed and ad codes masked", () => {
   assert.ok(r.long.length < 2100);
 });
 
+test("audit log: emails and phone numbers are removed, by key and inside text", () => {
+  const r = redact({ email: "buyer@example.com", phone: "+966555000111", note: "contact Buyer.Name+x@Example.co.uk today", segment: "Customers 2026", values: ["a@b.io"] });
+  const flat = JSON.stringify(r);
+  assert.ok(!flat.includes("buyer@") && !flat.includes("966555") && !flat.includes("Buyer.Name") && !flat.includes("a@b.io"));
+  assert.equal(r.email, "[redacted]");
+  assert.equal(r.note, "contact [email] today");
+  assert.equal(r.segment, "Customers 2026");
+});
+
 test("audit log: intent is written before anything runs, and an unwritable log stops the operation", () => {
   const dir = mkdtempSync(join(tmpdir(), "audit-"));
   const file = join(dir, "log.jsonl");
