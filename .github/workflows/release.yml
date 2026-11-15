@@ -1,0 +1,30 @@
+name: release
+# When a version tag such as v0.9.3 is pushed: check that the tag matches package.json, run the tests,
+# build the Claude Desktop file (.mcpb) and attach it to a GitHub Release. It does not publish to npm.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Tag must match the package version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          test "${GITHUB_REF_NAME}" = "v${v}" || { echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${v}"; exit 1; }
+      - run: npm test
+      - run: npm run pack:mcpb
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 && gh release upload "${GITHUB_REF_NAME}" "dist/ads-mcp-for-snapchat-${v}.mcpb" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "dist/ads-mcp-for-snapchat-${v}.mcpb" --title "${v}" --notes "See CHANGELOG.md for what changed. Claude Desktop: download the .mcpb file and open it."
