@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs: `SECURITY.md` now lists every outside address the server contacts and what is sent. New tests fail when a tool or a `SNAP_` setting is missing from the README, or when the code starts contacting an address that `SECURITY.md` does not list. `SNAP_HOME` was missing from the README and is now documented.
+
 ## 0.8.0 (2026-11-15)
 
 Not yet verified on a live account (built from Snap's documentation and mocked tests).

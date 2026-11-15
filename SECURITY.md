@@ -13,5 +13,17 @@ Supported version: the latest release on `main`. This is a small, unofficial pro
 - Rotate the client secret whenever it may have been seen outside your machine (pasted in a chat, a screenshot, a shared terminal): create a new secret in Snap Ads Manager, run `node scripts/save-secret.js`, then authorize again with `scripts/get-refresh-token.js`. The old secret and refresh token stop working.
 - Anything that can read `.env` holds the full API credentials and bypasses every guard in this server. Deny your AI client's file tools access to `.env` and `changes.log.jsonl`.
 
+## What this server connects to
+Everything runs on your computer. These are the only outside addresses it contacts:
+
+| Address | What for | What is sent |
+|---|---|---|
+| `adsapi.snapchat.com`, `accounts.snapchat.com` | The Snapchat Marketing API and login | Your requests, with your access token |
+| `tr.snapchat.com` | Conversions API **test** events and their status (`snap_capi_*`) | Your access token and one test event; an email is hashed first. Real conversion events are never sent. |
+| `adsapi.snapchat.com/v1/ads_library/...` | Competitor ads (`snap_competitor_ads`) | The advertiser name you search for. **No token**, nothing about your account. |
+| The links of your own active ads | `snap_check_landing_pages` opens each link once | A plain request. Only `https`, never private, loopback or link-local addresses, and every redirect is checked again. No credentials. |
+
+Text that comes back from outside (competitors' ads, page contents, ad review reasons) is untrusted data: it is cut, marked as such in the answer, and must not be followed as instructions. `SNAP_PORTFOLIO_FILES` can only be set by you in your own settings; the AI app cannot choose which files are read. The audit log removes credentials, emails and phone numbers from logged arguments.
+
 ## Safety design
 Write tools need the approval token of a preview of the exact same request, create objects paused, enforce absolute and relative money limits that fail closed, only touch the configured ad account, and record every write in an audit log. The approval token is not a human signature: keep your MCP client's permission prompt on for write tools (see README, "What the approval token is not"). This tool edits real campaigns: review each preview before approving.
