@@ -11,6 +11,18 @@ import { shiftIso } from "./fatigue.js";
 
 const count = (a) => (Array.isArray(a) ? `${a.length} item${a.length === 1 ? "" : "s"}` : null);
 
+// For `verify --details`: the specifics behind a summary line. Links are shown without their query string (it can carry
+// tracking ids); everything goes through tidy() before it is printed.
+const where = (u) => { try { const x = new URL(u); return `${x.hostname}${x.pathname}`; } catch { return String(u).split("?")[0]; } };
+export const DETAILS = {
+  snap_check_landing_pages: (d) => (d.problems ?? []).slice(0, 10).map((p) => `${p.verdict}${p.status ? ` ${p.status}` : ""} ${where(p.url)}: ${p.detail ?? ""}${p.missing_params ? ` (missing ${p.missing_params.join(", ")})` : ""}${p.lands_on_other_site ? ` (ends on ${p.lands_on_other_site})` : ""} [${p.ads?.length ?? 0} ad(s), e.g. ${p.ads?.[0]?.ad ?? "?"}]`),
+  snap_pixel_health: (d) => (d.top_priority_issues ?? []).slice(0, 10).map((i) => (typeof i === "string" ? i : JSON.stringify(i))),
+  snap_catalog_feed_status: (d) => (d.catalogs_detail ?? []).flatMap((c) => c.feeds.filter((f) => f.problems.length || f.upload_errors).map((f) => `${c.catalog} / ${f.name}: ${[...f.problems, ...(f.upload_issues ?? [])].slice(0, 4).join("; ")}`)).slice(0, 10),
+  snap_audience_health: (d) => (d.problems ?? []).slice(0, 15).map((p) => `${p.name} (${p.source_type}, ${p.size} people): ${p.flags.map((f) => f.code).join(", ")}`),
+  snap_review_issues: (d) => (d.items ?? []).slice(0, 10).map((i) => `${i.name}: ${String(i.reasons?.[0] ?? i.review_status ?? "").slice(0, 120)}`),
+  snap_health_check: (d) => Object.entries(d.issue_counts ?? {}).map(([k, n]) => `${k}: ${n} ad squad(s)`),
+};
+
 // Each check: the tool, its arguments, what it needs from the settings (else it is skipped), and a short summary of the answer.
 export function checksFor({ start, end, hasPixel, hasCountry }) {
   return [
@@ -44,7 +56,7 @@ export function checksFor({ start, end, hasPixel, hasCountry }) {
 // Printed output never includes ids or tokens: ids are shortened, long secret-looking strings are hidden.
 export const tidy = (s) => String(s).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (m) => `${m.slice(0, 8)}…`).replace(/[A-Za-z0-9._-]{40,}/g, "[hidden]").replace(/\s+/g, " ").slice(0, 220);
 
-export async function runVerify({ client, env = process.env, now = new Date(), log = console.log }) {
+export async function runVerify({ client, env = process.env, now = new Date(), log = console.log, details = false }) {
   // Everything below runs with writes switched off, whatever the settings say.
   const settings = { ...env, SNAP_READ_ONLY: "1", SNAP_TOOLSETS: "", SNAP_LOG_FILE: env.SNAP_LOG_FILE ?? "" };
   const policy = loadPolicy(settings);
@@ -84,7 +96,7 @@ export async function runVerify({ client, env = process.env, now = new Date(), l
           } catch {
             detail = "ok";
           }
-          row = { tool: c.tool, status: "OK", detail };
+          row = { tool: c.tool, status: "OK", detail, ...(details && DETAILS[c.tool] ? { lines: (() => { try { return DETAILS[c.tool](data ?? {}).map(tidy); } catch { return []; } })() } : {}) };
         }
       } catch (e) {
         row = { tool: c.tool, status: "FAIL", detail: tidy(e.message) };
@@ -92,6 +104,16 @@ export async function runVerify({ client, env = process.env, now = new Date(), l
     }
     results.push(row);
     log(`  ${row.status === "OK" ? "✓" : row.status === "SKIP" ? "-" : "✗"} ${row.tool.padEnd(28)} ${row.detail}`);
+  }
+  if (details) {
+    const withLines = results.filter((r) => r.lines?.length);
+    log("");
+    log("Details");
+    if (!withLines.length) log("  (nothing to show)");
+    for (const r of withLines) {
+      log(`  ${r.tool}`);
+      for (const l of r.lines) log(`    - ${l}`);
+    }
   }
   await mcp.close();
   const failed = results.filter((r) => r.status === "FAIL").length;

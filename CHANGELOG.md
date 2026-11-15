@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `verify --details` lists the specifics behind each problem (broken links without their query strings, pixel issues, feed errors, audience problems, rejected ads' reasons, ad squad issue counts).
+
 ## 0.9.1 (2026-11-15)
 
 Fixes from the first run of `verify` on a real ad account (19 of 24 checks passed; these are the other five and some rough edges). Mocked tests could not have found them.

@@ -26,7 +26,7 @@ Usage: npx ads-mcp-for-snapchat [command]
   auth CODE        exchange the authorization code for a refresh token
   check            test the connection and the ad account (read-only)
   weekly-report    write the weekly report to the exports folder
-  verify           run every read-only tool on your account and show what works (changes nothing)
+  verify           run every read-only tool on your account and show what works (changes nothing); add --details for the specifics behind each problem
   help             show this text
 
 Settings file: SNAP_ENV_FILE if set, otherwise .env in ~/.ads-mcp-for-snapchat (npm install) or the project folder (git clone).`;
@@ -44,7 +44,7 @@ export async function main(argv = process.argv.slice(2)) {
     const { runVerify } = await import("./verify.js");
     loadEnv();
     console.log("Checking every read-only tool on your ad account (nothing is changed)...\n");
-    const { failed } = await runVerify({ client: new SnapClient() });
+    const { failed } = await runVerify({ client: new SnapClient(), details: rest.includes("--details") });
     process.exitCode = failed ? 1 : 0;
     return;
   }
