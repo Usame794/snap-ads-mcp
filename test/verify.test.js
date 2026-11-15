@@ -64,3 +64,22 @@ test("Snap refusing the normal login for the Conversions API test tools is a ski
   assert.match(capi.detail, /needs SNAP_CAPI_TOKEN/);
   assert.ok(results.find((r) => r.tool === "snap_ping").status === "OK", "everything else is still run");
 });
+
+test("verify --details lists the specifics, without query strings or full ids", async () => {
+  const { DETAILS } = await import("../src/verify.js");
+  const lines = DETAILS.snap_check_landing_pages({ problems: [{ verdict: "BROKEN", status: 404, url: "https://shop.example/p/1?utm_source=x&token=SECRETSECRET", detail: "Page not found (404)", ads: [{ ad: "Ad one" }, { ad: "Ad two" }], missing_params: ["utm_content"] }] });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^BROKEN 404 shop\.example\/p\/1: Page not found \(404\) \(missing utm_content\) \[2 ad\(s\), e\.g\. Ad one\]$/);
+  assert.ok(!lines[0].includes("SECRET") && !lines[0].includes("utm_source"));
+  assert.deepEqual(DETAILS.snap_pixel_health({ top_priority_issues: ["Event quality is low", { code: "X" }] }), ["Event quality is low", '{"code":"X"}']);
+  assert.match(DETAILS.snap_catalog_feed_status({ catalogs_detail: [{ catalog: "Main", feeds: [{ name: "F", problems: ["The latest upload is FAILED."], upload_errors: 1, upload_issues: ["1 x CAT_FEED_FILE_NO_DATA"] }, { name: "OK", problems: [], upload_errors: 0 }] }] })[0], /^Main \/ F: The latest upload is FAILED\.; 1 x CAT_FEED_FILE_NO_DATA$/);
+  assert.match(DETAILS.snap_audience_health({ problems: [{ name: "Old list", source_type: "FIRST_PARTY", size: 900, flags: [{ code: "TINY" }, { code: "STALE" }] }] })[0], /Old list \(FIRST_PARTY, 900 people\): TINY, STALE/);
+  const snap = fakeSnap(sampleWorld());
+  const client = new SnapClient({ env: ENV, fetchImpl: snap.fetchImpl, sleep: async () => {} });
+  const out = [];
+  await runVerify({ client, env: ENV, details: true, log: (l) => out.push(l) });
+  assert.ok(out.includes("Details"));
+  const plain = [];
+  await runVerify({ client, env: ENV, log: (l) => plain.push(l) });
+  assert.ok(!plain.includes("Details"), "details only when asked for");
+});
