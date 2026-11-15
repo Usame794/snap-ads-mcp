@@ -17,10 +17,12 @@ import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
+import { budgetAdvice, creativeCompare, hourlyReport } from "./advice.js";
+import { CAP_UNITS, planAdSchedule, planFrequencyCap } from "./controls.js";
 import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
 import { registerPrompts } from "./prompts.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
-import { buildAdSquad, buildCampaign, createAdSquad, createCampaign, inspectMediaFile, uploadMedia } from "./create.js";
+import { AD_SQUAD_GOALS, buildAdSquad, buildCampaign, createAdSquad, createCampaign, inspectMediaFile, uploadMedia } from "./create.js";
 import { executeCopy, executeCopySquad, loadSource, planCopy, planCopySquad } from "./copy.js";
 import { executeCloneAd, loadTargets, planCloneAd } from "./clone-ad.js";
 import { executeBulkStatus, loadBulkItems, planBulkStatus } from "./bulk.js";
@@ -720,6 +722,36 @@ export function registerTools(server, client, env = process.env) {
     },
   );
 
+  read(
+    "snap_report_hourly",
+    {
+      description: "Which hours of the day work best? (read-only) Spend, purchases, ROAS and cost per purchase for each local hour of the day, summed over the last 1-7 full days, with the best and worst hours and four dayparts. Account level by default, or one campaign, ad squad or ad. Hours follow SNAP_REPORT_UTC_OFFSET.",
+      shape: { entity: z.enum(["adaccount", "campaign", "adsquad", "ad"]).default("adaccount"), id: id().optional().describe("Required unless entity is adaccount"), days: z.number().int().min(1).max(7).default(7) },
+    },
+    ({ entity, id: entityId, days }) => {
+      if (entity !== "adaccount" && !entityId) throw new Error("id is required for a campaign, ad squad or ad");
+      return hourlyReport(client, { entity, id: entity === "adaccount" ? account() : entityId, offset: policy.reportUtcOffset, days });
+    },
+  );
+
+  read(
+    "snap_creative_compare",
+    {
+      description: "Which ads win? (read-only) Compares the ads of a campaign or ad squad: spend, purchases, ROAS, cost per purchase, headline and call to action, with WINNER / NORMAL / LAGGING / TOO_EARLY against the median, and results grouped by call to action. Ads with less than min_spend are not judged.",
+      shape: { entity: z.enum(["campaign", "adsquad"]), id: id(), start_time: z.string(), end_time: z.string(), min_spend: z.number().positive().default(50), limit: z.number().int().min(1).max(100).default(30) },
+    },
+    ({ entity, id: entityId, start_time, end_time, min_spend, limit }) => creativeCompare(client, { adAccountId: account(), entity, id: entityId, start_time, end_time, minSpend: min_spend, limit }),
+  );
+
+  read(
+    "snap_budget_advice",
+    {
+      description: "Where could budget move? (read-only suggestions; nothing is changed) Compares ACTIVE ad squads that have a daily budget by ROAS over the last days. Suggests lowering the ones far under the median (-25%) and raising the proven ones (+20%, never above the configured limits), funded by what is freed, plus optional extra_budget per day. Each suggestion names the tool that applies it, which previews and waits for your approval.",
+      shape: { days: z.number().int().min(3).max(28).default(7), min_spend: z.number().positive().default(50), extra_budget: z.number().min(0).default(0).describe("Extra daily budget you are willing to add, in account currency") },
+    },
+    ({ days, min_spend, extra_budget }) => budgetAdvice(client, { adAccountId: account(), policy, offset: policy.reportUtcOffset, days, minSpend: min_spend, extraBudget: extra_budget }),
+  );
+
   registerPrompts(server);
 
   read(
@@ -1163,6 +1195,28 @@ export function registerTools(server, client, env = process.env) {
   );
 
   write(
+    "snap_set_frequency_cap",
+    {
+      description: "Limit how often one person sees an ad squad's ads: at most `count` impressions per `every` HOURS or DAYS (up to 30 days), or clear the cap. A cap lowers repetition (and so frequency), and may lower delivery. Undo works when a cap existed before. Previews unless confirm=true.",
+      shape: { adsquad_id: id(), count: z.number().int().min(1).max(100).optional(), every: z.number().int().min(1).max(720).optional(), unit: z.enum(CAP_UNITS).default("DAYS"), clear: z.boolean().default(false) },
+    },
+    ({ adsquad_id, count, every, unit, clear }) => change("adsquad", adsquad_id, (cur) => planFrequencyCap(cur, { count, every, unit, clear })),
+  );
+
+  write(
+    "snap_set_ad_schedule",
+    {
+      description: "Choose which hours of which days an ad squad's ads run (hours 0-23 in each viewer's local time), or run every hour. Snap allows this only on LIFETIME-budget ad squads, so it is refused on daily-budget ones. A narrow schedule lowers delivery. Undo works when a schedule existed before. Previews unless confirm=true.",
+      shape: {
+        adsquad_id: id(),
+        schedule: z.record(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), z.array(z.number().int().min(0).max(23)).min(1).max(24)).optional().describe("e.g. {\"friday\": [18,19,20,21], \"saturday\": [18,19,20,21]}"),
+        always: z.boolean().default(false).describe("true = every hour of every day"),
+      },
+    },
+    ({ adsquad_id, schedule, always }) => change("adsquad", adsquad_id, (cur) => planAdSchedule(cur, { schedule, always })),
+  );
+
+  write(
     "snap_copy_adsquad",
     {
       description: "Copy one ad squad (optionally with its ads) into a target campaign. Created PAUSED. Budgets are scaled by budget_scale and must stay within the configured limits. Previews unless confirm=true.",
@@ -1226,7 +1280,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_create_adsquad",
     {
-      description: "Create a new ad squad from a few choices (purchase-optimized web squad with a max bid). Always PAUSED. daily_budget and bid must be within the configured limits (SNAP_MIN_DAILY_BUDGET, SNAP_MAX_DAILY_BUDGET, SNAP_MAX_BID). Previews unless confirm=true. Pixel defaults to SNAP_PIXEL_ID.",
+      description: "Create a new ad squad from a few choices (a web squad with a max bid, optimized for purchases by default; goal can be another pixel goal, traffic, awareness or video views). Always PAUSED. daily_budget and bid must be within the configured limits (SNAP_MIN_DAILY_BUDGET, SNAP_MAX_DAILY_BUDGET, SNAP_MAX_BID). Previews unless confirm=true. Pixel defaults to SNAP_PIXEL_ID.",
       shape: {
         campaign_id: id(),
         name: z.string().min(3),
@@ -1243,6 +1297,7 @@ export function registerTools(server, client, env = process.env) {
         max_age: z.number().int().min(13).max(50).optional(),
         gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
         conversion_window: z.enum(["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"]).default("SWIPE_7DAY"),
+        goal: z.enum(AD_SQUAD_GOALS).default("PIXEL_PURCHASE").describe("What to optimize for. PIXEL_* goals (purchase, add to cart, page view, sign-up) need a pixel; SWIPES (traffic), IMPRESSIONS (awareness) and VIDEO_VIEWS goals do not. Web (link) ads only."),
         product_set_id: id().optional().describe("Catalog ads: the product set this ad squad shows. The campaign must be a catalog campaign (snap_create_campaign with catalog_id) whose catalog holds this set."),
         dpa_mode: z.enum(["retargeting", "prospecting"]).optional().describe("Catalog ads: retargeting = people who viewed or added to cart but did not buy; prospecting = people who have not interacted with these products. Needs product_set_id."),
         audience_days: z.number().int().min(1).max(30).default(14).describe("Catalog ads: how many days of product activity count"),
@@ -1258,7 +1313,7 @@ export function registerTools(server, client, env = process.env) {
         if (!(await listProductSets(client, catalogId)).some((s) => s.id === a.product_set_id)) throw new Error(`Product set ${a.product_set_id} is not in this campaign's catalog.`);
         if (a.dpa_mode === "retargeting" && !(a.pixel_id ?? cfg.pixel)) throw new Error("Retargeting needs a pixel: give pixel_id or set SNAP_PIXEL_ID.");
       }
-      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries ?? defaultCountries(), minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, productSetId: a.product_set_id, dpaMode: a.dpa_mode, audienceDays: a.audience_days, env: policy });
+      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries ?? defaultCountries(), minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, optimizationGoal: a.goal, productSetId: a.product_set_id, dpaMode: a.dpa_mode, audienceDays: a.audience_days, env: policy });
       const adsquad = build();
       const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries ?? defaultCountries(), excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, ...(a.product_set_id ? { catalog_ads: { product_set_id: a.product_set_id, mode: a.dpa_mode, product_activity_days: a.audience_days } } : {}), status: "PAUSED" };
       return {

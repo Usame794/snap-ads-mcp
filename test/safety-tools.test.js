@@ -313,6 +313,8 @@ const WRITE_CALLS = (csv, img) => ({
   snap_create_campaign: { name: "Brand new" },
   snap_create_adsquad: { campaign_id: "c1", name: "Brand new squad", daily_budget: 10, bid: 1 },
   snap_create_ad: { creative_id: "cr1", adsquad_id: "s1", name: "Brand new ad" },
+  snap_set_frequency_cap: { adsquad_id: "s1", count: 3, every: 2, unit: "DAYS" },
+  snap_set_ad_schedule: { adsquad_id: "s1", always: true },
   snap_capi_test_event: { event_name: "PAGE_VIEW", event_source_url: "https://shop.example/" },
   snap_create_product_set: { catalog_id: "cat1", name: "Red shoes", filter: { COLOR: { IS_ANY: ["red"] } } },
   snap_create_dynamic_template: { name: "Compact" },
@@ -342,7 +344,7 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   const { tools } = await listing.client.listTools();
   const writeTools = tools.filter((x) => x.annotations?.readOnlyHint === false && x.inputSchema.properties.confirm).map((x) => x.name).sort();
   assert.deepEqual(writeTools, Object.keys(calls).sort(), "the table above covers every mutating tool");
-  assert.equal(tools.length, 72);
+  assert.equal(tools.length, 77);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} rejects unknown arguments`);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", `${tool.name} is annotated`);
@@ -356,6 +358,8 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   for (const [name, args] of Object.entries(calls)) {
     // 1) confirm=true without a token: nothing is sent, nothing is logged
     const t = await setup();
+    // An ad schedule is only allowed on a lifetime-budget ad squad.
+    if (name === "snap_set_ad_schedule") t.db.adsquads.s1 = { ...t.db.adsquads.s1, daily_budget_micro: undefined, lifetime_budget_micro: 500e6, delivery_constraint: "LIFETIME_BUDGET" };
     if (name === "snap_undo") writeFileSync(t.logFile, JSON.stringify({ at: new Date().toISOString(), entity: "adsquad", id: "s1", name: "Squad s1", change: "rename", verified: true, patch: { name: "Squad s1" }, before: { name: "Old name" }, after: { name: "Squad s1" } }) + "\n");
     const logBefore = t.log().length;
     const denied = await t.call(name, { ...args, confirm: true });

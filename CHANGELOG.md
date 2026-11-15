@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `snap_set_frequency_cap` and `snap_set_ad_schedule`: change how often and when an ad squad's ads run (previewed, approved, logged, undoable when a value existed before). Snap allows an ad schedule only on lifetime-budget ad squads, so it is refused on daily-budget ones with the reason.
+- `snap_create_adsquad` takes `goal`: sales-type pixel goals, traffic (SWIPES), awareness (IMPRESSIONS) and video views. Only pixel goals need a pixel. The default is unchanged.
+- `snap_report_hourly`: results by local hour of the day. `snap_creative_compare`: the ads of a campaign or ad squad against the median ROAS, grouped by call to action. `snap_budget_advice`: suggested budget moves that net to zero and stay inside your limits, each naming the tool that applies it. Read-only.
+- Four more playbooks: Budget review, Tracking check, Competitor scan, Fix rejected ads.
+- Not built, because Snap's documentation does not show a safe form: custom placement control, bid-strategy switching.
 - `snap_audience_insights`: who is in an audience (Snap's Audience Insights): which age groups, genders, languages, interests and devices appear more or less than in everyone in the same countries.
 - `snap_competitor_ads`: a company's ads from Snap's public Ads Gallery. No login is used and nothing about your account is sent. Ad text is returned cut and marked as untrusted data.
 - `snap_capi_status` and `snap_capi_test_event`: Conversions API test events. The status tool reads the last 24 hours of test events and Snap's reasons for invalid ones; the test tool sends one previewed test event to the validate endpoint, with the email hashed locally. There is deliberately no tool that sends real conversion events.
