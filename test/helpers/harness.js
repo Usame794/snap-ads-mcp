@@ -11,12 +11,12 @@ import { SnapClient } from "../../src/snap.js";
 import { registerTools } from "../../src/tools.js";
 
 export const ACC = "acc-1";
-const KIND = { campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media", creative_elements: "creative_element", interaction_zones: "interaction_zone" };
-const PARENT_KEY = { adsquads: "campaign_id", ads: "ad_squad_id" };
+const KIND = { campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media", creative_elements: "creative_element", interaction_zones: "interaction_zone", catalogs: "catalog", product_sets: "product_set", dynamic_templates: "dynamic_template" };
+const PARENT_KEY = { adsquads: "campaign_id", ads: "ad_squad_id", product_sets: "catalog_id" };
 
 // world = { campaigns: {id: obj}, adsquads: {...}, ads: {...}, creatives: {...}, segments: {...}, media: {...}, currency }
 export function fakeSnap(world = {}) {
-  const db = { campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, creative_elements: {}, interaction_zones: {}, currency: "USD", ...world };
+  const db = { campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, creative_elements: {}, interaction_zones: {}, catalogs: {}, product_sets: {}, dynamic_templates: {}, currency: "USD", ...world };
   const calls = [];
   let seq = 0;
   const hooks = { failGetAfterPut: false, failNextWrite: null };
@@ -82,7 +82,7 @@ export function fakeSnap(world = {}) {
       return json(wrap(plural, [db[plural][sent.id]]));
     }
     const nid = `${KIND[plural]}-new-${++seq}`;
-    db[plural][nid] = { ...sent, id: nid, ...(seg[0] === "adaccounts" ? { ad_account_id: seg[1] } : {}), updated_at: `t${seq}` };
+    db[plural][nid] = { ...sent, id: nid, ...(seg[0] === "adaccounts" ? { ad_account_id: seg[1] } : {}), ...(seg[0] === "catalogs" ? { catalog_id: seg[1] } : {}), updated_at: `t${seq}` };
     return json(wrap(plural, [db[plural][nid]]));
   };
   const writes = () => calls.filter((c) => c.method !== "GET");
@@ -100,6 +100,9 @@ export function sampleWorld(extra = {}) {
     ads: { a1: a("a1", "s1"), a2: a("a2", "s2", { status: "PAUSED" }) },
     creatives: { cr1: { id: "cr1", name: "Creative one", type: "WEB_VIEW", ad_account_id: ACC, headline: "Hi", web_view_properties: { url: "https://example.com/" } } },
     segments: { 111: { id: "111", name: "Buyers", ad_account_id: ACC, source_type: "FIRST_PARTY" } },
+    catalogs: { cat1: { id: "cat1", name: "Main catalog", organization_id: "org-1", vertical: "COMMERCE" }, catx: { id: "catx", name: "Foreign catalog", organization_id: "org-OTHER", vertical: "COMMERCE" } },
+    product_sets: { ps1: { id: "ps1", catalog_id: "cat1", name: "All products", filter: { AVAILABILITY: { EQ: "IN_STOCK" } } }, psx: { id: "psx", catalog_id: "catx", name: "Foreign set", filter: { AVAILABILITY: { EQ: "IN_STOCK" } } } },
+    dynamic_templates: { dt1: { id: "dt1", name: "Default grid", ad_account_id: ACC, layout: "AUTOMATIC", text_fields: ["title", "price"] }, dtx: { id: "dtx", name: "Foreign template", ad_account_id: "acc-OTHER", layout: "AUTOMATIC", text_fields: [] } },
     media: { m1: { id: "m1", ad_account_id: ACC, media_status: "READY", type: "VIDEO" }, sq1: { id: "sq1", ad_account_id: ACC, media_status: "READY", type: "IMAGE", image_metadata: { width: 600, height: 600 } } },
     ...extra,
   };

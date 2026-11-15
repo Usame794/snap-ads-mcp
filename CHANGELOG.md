@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Catalog ads (Dynamic Product Ads): `snap_create_product_set` (Snap's filter rules checked before anything is sent), `snap_create_dynamic_template`, `snap_list_dynamic_templates`; `snap_create_campaign` takes `catalog_id`; `snap_create_adsquad` takes `product_set_id`, `dpa_mode` (retargeting / prospecting) and `audience_days`; `snap_create_creative` takes `creative_type: DYNAMIC_PRODUCT`; `snap_create_ad` creates the DYNAMIC ad and refuses a creative whose product set differs from the ad squad's. Catalogs and templates must belong to the ad account's organization / account. Everything is created PAUSED and the money limits apply. Built from Snap's guide and mocked tests; not yet verified live.
+
 ## 0.6.0 (2026-11-14)
 
 - `snap_audience_size`: Snap's reach estimate before spending, for an existing ad squad or for targeting you are planning (same targeting rules as creating an ad squad), with a verdict: very small, small, OK or very broad. Nothing is created.
