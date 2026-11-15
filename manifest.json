@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Usame794/snap-ads-mcp"
+    "url": "https://github.com/Usame794/snapchat-ads-mcp"
   },
-  "homepage": "https://github.com/Usame794/snap-ads-mcp",
-  "documentation": "https://github.com/Usame794/snap-ads-mcp#readme",
-  "support": "https://github.com/Usame794/snap-ads-mcp/issues",
+  "homepage": "https://github.com/Usame794/snapchat-ads-mcp",
+  "documentation": "https://github.com/Usame794/snapchat-ads-mcp#readme",
+  "support": "https://github.com/Usame794/snapchat-ads-mcp/issues",
   "license": "MIT",
   "keywords": [
     "snapchat",

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The GitHub repository is now `Usame794/snapchat-ads-mcp`; links in the package, the registry entry, the README and the login service pages use the new name.
 - `verify` command: runs every read-only tool on your real account and prints what worked, what failed (with a short, tidy reason) and what was skipped. It only calls tools that declare themselves read-only and forces read-only mode; a test checks it sends nothing but GETs and the two read-only POSTs (audience size and insights).
 - `broker/ASK-SNAP.md`: the message to send to Snap before announcing the shared login.
 
@@ -74,7 +75,7 @@ Everything below is built from Snap's documentation and mocked tests and is not 
 ## 0.4.1 (2026-11-14)
 
 - Settings files: when a key appears twice, the last line now wins (as in dotenv), so a line added at the end, such as `SNAP_READ_ONLY=1`, takes effect. Saving a secret or token replaces every copy of that key, so an older duplicate can never win.
-- Package and registry links point to the repository's real name, `Usame794/snap-ads-mcp` (0.4.0 linked to a name that does not exist).
+- Package and registry links point to the repository's real name, `Usame794/snapchat-ads-mcp` (0.4.0 linked to a name that does not exist).
 - README: the second-account `claude mcp add` command had the server name after `-e`, which Claude Code rejects. Fixed, and it now starts the second account read-only with `-e SNAP_READ_ONLY=1`.
 
 ## 0.4.0 (2026-11-14)
@@ -82,7 +83,7 @@ Everything below is built from Snap's documentation and mocked tests and is not 
 - Install from npm: `npx -y ads-mcp-for-snapchat` starts the server. `init`, `where`, `save-secret`, `auth`, `check` and `weekly-report` replace `node scripts/...` for installed copies; `help` lists them.
 - An installed copy keeps its settings, change log and exports in `~/.ads-mcp-for-snapchat` (or `SNAP_HOME`), never inside `node_modules`, so an update cannot erase them. A git checkout works exactly as before.
 - `server.json` for the official MCP Registry (`io.github.Usame794/ads-mcp-for-snapchat`).
-- Repository links point to `Usame794/snap-ads-mcp`.
+- Repository links point to `Usame794/snapchat-ads-mcp`.
 - Verified live on a real account: a COLLECTION ad (paused).
 
 ## 0.3.2 (2026-11-14)

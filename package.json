@@ -36,12 +36,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Usame794/snap-ads-mcp.git"
+    "url": "git+https://github.com/Usame794/snapchat-ads-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/Usame794/snap-ads-mcp/issues"
+    "url": "https://github.com/Usame794/snapchat-ads-mcp/issues"
   },
-  "homepage": "https://github.com/Usame794/snap-ads-mcp#readme",
+  "homepage": "https://github.com/Usame794/snapchat-ads-mcp#readme",
   "files": [
     "src",
     "scripts/save-secret.js",

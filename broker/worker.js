@@ -128,7 +128,7 @@ async function refresh(request, env, fetchImpl) {
 }
 
 const HOME = `<h1>Ads MCP for Snapchat: login service</h1>
-<p>This small service lets you connect your own Snapchat ad account to the open-source tool <a href="https://github.com/Usame794/snap-ads-mcp">Ads MCP for Snapchat</a> with a normal "log in with Snapchat" button, so you do not have to create your own Snapchat app.</p>
+<p>This small service lets you connect your own Snapchat ad account to the open-source tool <a href="https://github.com/Usame794/snapchat-ads-mcp">Ads MCP for Snapchat</a> with a normal "log in with Snapchat" button, so you do not have to create your own Snapchat app.</p>
 <p><strong>It stores nothing.</strong> Your access is sealed so that only your own computer can read it. See the <a href="/privacy">privacy page</a>. This is an unofficial project and is not affiliated with Snap Inc.</p>`;
 
 const PRIVACY = `<h1>Privacy</h1>
