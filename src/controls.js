@@ -72,3 +72,30 @@ export function planAdSchedule(current, { schedule, always = false }) {
     note: "Hours are each viewer's local time. The schedule cannot conflict with the ad squad's start and end dates. Ads outside these hours do not run, so a narrow schedule lowers delivery.",
   };
 }
+
+// ---------- Placement ----------
+
+// Where on Snapchat the ads may appear. INSTREAM is left out: it belongs to commercials and needs content bundles.
+export const PLACEMENT_POSITIONS = ["PUBLIC_STORIES_INSTREAM", "INTERSTITIAL_CONTENT", "INTERSTITIAL_SPOTLIGHT", "INTERSTITIAL_USER", "FEED", "CAMERA", "CHAT_FEED"];
+
+export function planPlacement(current, { mode, positions }) {
+  const now = current.placement_v2 ?? null;
+  const describe = (p) => (!p ? "automatic" : p.config === "AUTOMATIC" ? "automatic (everywhere)" : `custom: ${(p.snapchat_positions ?? []).join(", ")}`);
+  if (now && (now.inclusion || now.exclusion)) throw new Error("This ad squad has content inclusion or exclusion lists in its placement. Change its placement in Ads Manager so those are not lost.");
+  let next;
+  if (mode === "automatic") {
+    if (positions?.length) throw new Error("Do not give positions with mode automatic");
+    next = { config: "AUTOMATIC" };
+  } else if (mode === "custom") {
+    if (!Array.isArray(positions) || !positions.length) throw new Error(`positions is required for custom placement: ${PLACEMENT_POSITIONS.join(", ")}`);
+    const bad = positions.filter((p) => !PLACEMENT_POSITIONS.includes(p));
+    if (bad.length) throw new Error(`Unknown or unsupported position ${bad.join(", ")}. Allowed: ${PLACEMENT_POSITIONS.join(", ")}`);
+    const set = [...new Set(positions)].sort();
+    if (set.includes("CHAT_FEED") && !set.includes("INTERSTITIAL_CONTENT") && !set.includes("INTERSTITIAL_USER")) throw new Error("CHAT_FEED must be combined with INTERSTITIAL_CONTENT or INTERSTITIAL_USER (Snap's rule)");
+    next = { config: "CUSTOM", platforms: ["SNAPCHAT"], snapchat_positions: set };
+  } else {
+    throw new Error("mode must be automatic or custom");
+  }
+  if (JSON.stringify(now) === JSON.stringify(next)) throw new Error("The placement is already that value");
+  return { patch: { placement_v2: next }, summary: `placement ${describe(now)} -> ${describe(next)}`, note: "Fewer placements usually mean less reach and a higher cost. Undo works when a placement was set before." };
+}

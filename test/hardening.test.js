@@ -134,7 +134,11 @@ test("undo cannot be steered by a doctored log entry", async () => {
   const cur = { id: "s1", status: "PAUSED", daily_budget_micro: 10e6, name: "Squad s1" };
   const e = (patch, before) => ({ entity: "adsquad", id: "s1", change: "x", patch, before, after: patch });
   assert.throws(() => planUndo(e({ lifetime_budget_micro: 1 }, { lifetime_budget_micro: 9e12 }), cur, { force: true }), /never edits/);
-  assert.throws(() => planUndo(e({ bid_strategy: "x" }, { bid_strategy: "AUTO_BID" }), cur, { force: true }), /never edits/);
+  assert.throws(() => planUndo(e({ bid_strategy: "x", bid_micro: 1 }, { bid_strategy: "AUTO_BID", bid_micro: 5e6 }), cur, { force: true }), /remove the bid cap/, "auto-bid is never restored");
+  assert.throws(() => planUndo(e({ bid_strategy: "TARGET_COST" }, { bid_strategy: "LOWEST_COST_WITH_MAX_BID" }), cur, { force: true }), /no valid earlier bid/);
+  assert.throws(() => planUndo(e({ placement_v2: { config: "AUTOMATIC" } }, { placement_v2: { config: "EVERYWHERE" } }), cur, { force: true }), /unknown placement/);
+  assert.throws(() => planUndo(e({ ad_scheduling_config: {} }, { ad_scheduling_config: "all day" }), cur, { force: true }), /no valid earlier ad_scheduling_config/);
+  assert.throws(() => planUndo(e({ upload_url: "x" }, { upload_url: "y" }), cur, { force: true }), /never edits/);
   assert.throws(() => planUndo(e({ status: "PAUSED" }, { status: "DELETED" }), cur, { force: true }), /other than ACTIVE or PAUSED/);
   assert.throws(() => planUndo(e({ daily_budget_micro: 10e6 }, { daily_budget_micro: "9000000000" }), cur, { force: true }), /no valid earlier daily_budget_micro/);
   assert.throws(() => planUndo(e({ daily_budget_micro: 10e6 }, { daily_budget_micro: -5 }), cur, { force: true }), /no valid earlier/);

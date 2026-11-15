@@ -17,6 +17,17 @@ export const DATA_DIR = dataDir();
 // The settings file in use: SNAP_ENV_FILE when set (one file per ad account), otherwise .env in the data folder.
 export const envFile = () => process.env.SNAP_ENV_FILE || join(dataDir(), ".env");
 
+// The settings in a file, as an object, without touching process.env. When a key appears twice the last line wins.
+export function readEnvFile(file) {
+  const values = {};
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!m || line.trim().startsWith("#")) continue;
+    values[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+  return values;
+}
+
 // Minimal .env loader so the server needs no extra dependency.
 export function loadEnv(file = envFile(), { override = false } = {}) {
   let text;

@@ -57,6 +57,24 @@ export function planExcludeSegments(current, segmentIds) {
   return { patch: { targeting }, summary: `exclude segments ${toAdd.join(", ")}` };
 }
 
+// Switch between the two strategies that carry a bid: max bid and target cost. Switching TO one of them from auto-bid is allowed
+// (it adds a cap). Switching to auto-bid is not offered: it would remove the bid cap, which this server never does.
+export const BID_STRATEGIES = ["LOWEST_COST_WITH_MAX_BID", "TARGET_COST"];
+export function planBidStrategy(current, { strategy, bid }, env = process.env, { history } = {}) {
+  const policy = loadPolicy(env);
+  if (!BID_STRATEGIES.includes(strategy)) throw new Error(`strategy must be ${BID_STRATEGIES.join(" or ")}. Switching to auto-bid removes the bid cap, so it is not offered here; do it in Ads Manager.`);
+  if (!(bid > 0)) throw new Error("bid is required (account currency): the max bid, or the target cost");
+  const nowStrategy = current.bid_strategy ?? (current.auto_bid ? "AUTO_BID" : "LOWEST_COST_WITH_MAX_BID");
+  const before = current.bid_micro != null ? unmicro(current.bid_micro) : null;
+  if (nowStrategy === strategy && before === bid) throw new Error("The bid strategy and bid are already those values");
+  checkBid(policy, { before, value: bid, windowStart: before == null ? null : windowStart(history, current, "bid_micro"), what: strategy === "TARGET_COST" ? "Target cost" : "Max bid" });
+  const patch = { bid_strategy: strategy, bid_micro: micro(bid) };
+  // Older fields Snap still returns on the same ad squad; kept consistent with the strategy when present.
+  if ("auto_bid" in current) patch.auto_bid = false;
+  if ("target_bid" in current) patch.target_bid = strategy === "TARGET_COST";
+  return { patch, summary: `bid strategy ${nowStrategy}${before != null ? ` (${before})` : ""} -> ${strategy} (${bid})`, note: strategy === "TARGET_COST" ? "With target cost Snap aims for the average cost you give instead of capping each bid, so delivery and spend can behave differently. The daily budget limit still applies." : undefined };
+}
+
 export function planRename(current, newName) {
   const n = String(newName ?? "").trim();
   if (n.length < 3) throw new Error("New name must be at least 3 characters");
@@ -267,13 +285,20 @@ export function undoableEntries(file = LOG_FILE) {
 }
 
 // The only fields this server ever edits. An undo restores nothing else, whatever a log entry claims.
-const UNDOABLE_FIELDS = ["status", "daily_budget_micro", "bid_micro", "targeting", "start_time", "end_time", "name", "cap_and_exclusion_config", "ad_scheduling_config"];
+const UNDOABLE_FIELDS = ["status", "daily_budget_micro", "bid_micro", "targeting", "start_time", "end_time", "name", "cap_and_exclusion_config", "ad_scheduling_config", "placement_v2", "bid_strategy", "auto_bid", "target_bid"];
 
 export function planUndo(entry, current, { force = false, env = process.env, history } = {}) {
   const keys = Object.keys(entry.patch ?? {});
   if (!keys.length || !entry.before || typeof entry.before !== "object") throw new Error("That log entry has nothing that can be undone");
   const foreign = keys.filter((k) => !UNDOABLE_FIELDS.includes(k));
   if (foreign.length) throw new Error(`That log entry touches ${foreign.join(", ")}, which this server never edits; refusing to restore it.`);
+  // An undo never restores auto-bid (that would remove the bid cap), whatever a log entry claims.
+  if (keys.includes("bid_strategy") && !BID_STRATEGIES.includes(entry.before.bid_strategy)) throw new Error("That log entry would restore a bid strategy other than max bid or target cost (which would remove the bid cap); refusing.");
+  if (keys.includes("bid_strategy") && !(typeof entry.before.bid_micro === "number" && entry.before.bid_micro > 0)) throw new Error("That log entry has no valid earlier bid for the bid strategy; refusing.");
+  for (const k of ["cap_and_exclusion_config", "ad_scheduling_config", "placement_v2"]) {
+    if (keys.includes(k) && entry.before[k] != null && (typeof entry.before[k] !== "object" || Array.isArray(entry.before[k]))) throw new Error(`That log entry has no valid earlier ${k}; refusing.`);
+  }
+  if (keys.includes("placement_v2") && entry.before.placement_v2 && !["AUTOMATIC", "CUSTOM"].includes(entry.before.placement_v2.config)) throw new Error("That log entry would restore an unknown placement; refusing.");
   if (keys.includes("status") && !["ACTIVE", "PAUSED"].includes(entry.before.status)) throw new Error("That log entry would restore a status other than ACTIVE or PAUSED; refusing.");
   for (const k of ["daily_budget_micro", "bid_micro"]) {
     if (keys.includes(k) && entry.before[k] != null && !(typeof entry.before[k] === "number" && Number.isFinite(entry.before[k]) && entry.before[k] > 0)) throw new Error(`That log entry has no valid earlier ${k}; refusing.`);

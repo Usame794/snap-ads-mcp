@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 (2026-11-15)
+
+Not yet verified on a live account (built from Snap's documentation and mocked tests).
+
+- `snap_set_bid_strategy`: switch an ad squad between max bid and target cost with the bid for the new strategy, under the same bid limits as `snap_set_bid`. An ad squad on auto-bid can be given a cap this way. Switching TO auto-bid is deliberately not offered, and an undo can never restore auto-bid, because that would remove the bid cap.
+- `snap_set_placement`: automatic, or custom positions (PUBLIC_STORIES_INSTREAM, INTERSTITIAL_CONTENT, INTERSTITIAL_SPOTLIGHT, INTERSTITIAL_USER, FEED, CAMERA, CHAT_FEED with Snap's CHAT_FEED rule). Refused on ad squads that use content inclusion or exclusion lists. Undo works when a placement was set before.
+- `snap_portfolio_summary`: all your ad accounts side by side. The accounts are the settings files you list in `SNAP_PORTFOLIO_FILES`; the tool takes no arguments, so the AI app cannot choose files. Each account is read with its own credentials, only account-level numbers are returned, and currencies are never added together.
+- Undo now validates the new editable fields (placement, caps, schedules, bid strategy) the same way it validates the old ones.
+- This release also contains everything in 0.7.0, which is already on npm.
+
 ## 0.7.0 (2026-11-15)
 
 Everything below is built from Snap's documentation and mocked tests and is not yet verified on a live account. New write tools are previewed, need approval, are audited and create things PAUSED; all other new tools only read.

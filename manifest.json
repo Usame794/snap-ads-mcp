@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "ads-mcp-for-snapchat",
   "display_name": "Ads MCP for Snapchat",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "long_description": "Unofficial. Runs on your computer with your own Snapchat OAuth app. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\".",
   "author": {
