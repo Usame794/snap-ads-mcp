@@ -17,6 +17,8 @@ import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
+import { toolAllowed } from "./toolsets.js";
+import { audienceHealth, billingCheck, feedStatus, funnelReport, unusedMedia } from "./hygiene.js";
 import { budgetAdvice, creativeCompare, hourlyReport } from "./advice.js";
 import { CAP_UNITS, planAdSchedule, planFrequencyCap } from "./controls.js";
 import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
@@ -70,6 +72,9 @@ const TWO_STEP = " Two steps: confirm=false returns a preview and an approval_to
 export function registerTools(server, client, env = process.env) {
   // Safety settings are parsed once, here. Invalid settings throw, so the server does not start with a limit switched off.
   const policy = loadPolicy(env);
+  // SNAP_TOOLSETS hides whole groups of tools (see toolsets.js). Prompts and settings are not affected.
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = (name, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, ...rest) : undefined);
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
   const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
   // One change log per settings file: with SNAP_ENV_FILE (one file per ad account) the log sits next to it, so 24-hour limits,
@@ -481,6 +486,12 @@ export function registerTools(server, client, env = process.env) {
     return catalog;
   };
 
+  // A product set id given directly (for a creative) must be one of this organization's: it is looked up in its catalogs.
+  const ownProductSet = async (setId) => {
+    for (const c of await listCatalogs(client, await accountOrg())) if ((await listProductSets(client, c.id)).some((s) => s.id === setId)) return c;
+    throw new Error(`Product set ${setId} is not in any catalog of this ad account's organization; refusing to use it.`);
+  };
+
   read(
     "snap_list_dynamic_templates",
     { description: "List the ad account's dynamic templates (how products are laid out in catalog ads), read-only. Use an id as dynamic_template_id in snap_create_creative.", shape: { limit: z.number().int().min(1).max(200).default(50) } },
@@ -752,6 +763,54 @@ export function registerTools(server, client, env = process.env) {
     ({ days, min_spend, extra_budget }) => budgetAdvice(client, { adAccountId: account(), policy, offset: policy.reportUtcOffset, days, minSpend: min_spend, extraBudget: extra_budget }),
   );
 
+  read(
+    "snap_billing_check",
+    {
+      description: "Will ads keep running? (read-only) The ad account's status, its funding sources (card expiry, daily spend limit vs the active ad squads' daily budgets, line-of-credit left and how many days it covers) and a verdict. Needs a login that can see the organization's funding sources.",
+      shape: {},
+    },
+    () => billingCheck(client, { adAccountId: account() }),
+  );
+
+  read(
+    "snap_unused_media",
+    {
+      description: "Which uploaded images and videos does no creative use? (read-only; never deletes) Oldest first. A file counts as used if any creative or creative element of this ad account mentions it.",
+      shape: { limit: z.number().int().min(1).max(500).default(100) },
+    },
+    ({ limit }) => unusedMedia(client, { adAccountId: account(), limit }),
+  );
+
+  read(
+    "snap_audience_health",
+    {
+      description: "Audience problems (read-only): segments that are not targetable, too small (under 1,000 people) or customer lists not updated for 90+ days, plus segments no ACTIVE ad squad uses.",
+      shape: { stale_days: z.number().int().min(7).max(720).default(90), min_size: z.number().int().min(0).default(1000) },
+    },
+    ({ stale_days, min_size }) => audienceHealth(client, { adAccountId: account(), staleDays: stale_days, minSize: min_size }),
+  );
+
+  read(
+    "snap_funnel",
+    {
+      description: "Where do people drop off? (read-only) Impressions, swipes, content views, add to cart, checkout and purchases with the rate from each step to the next and the weakest step, for the account or one campaign, ad squad or ad over the last 1-31 full local days. Steps your pixel does not send are listed as missing.",
+      shape: { entity: z.enum(["adaccount", "campaign", "adsquad", "ad"]).default("adaccount"), id: id().optional().describe("Required unless entity is adaccount"), days: z.number().int().min(1).max(31).default(7) },
+    },
+    ({ entity, id: entityId, days }) => {
+      if (entity !== "adaccount" && !entityId) throw new Error("id is required for a campaign, ad squad or ad");
+      return funnelReport(client, { adAccountId: account(), entity, id: entityId, offset: policy.reportUtcOffset, days });
+    },
+  );
+
+  read(
+    "snap_catalog_feed_status",
+    {
+      description: "Are the product feeds loading? (read-only) For each catalog of the organization: its feeds, the last completed upload (when, how many items), the latest upload's status and issues. Catalog ads show wrong prices or stock when the feed is stale.",
+      shape: { organization_id: id().optional().describe("Defaults to the ad account's organization") },
+    },
+    async ({ organization_id }) => feedStatus(client, { organizationId: organization_id ?? (await accountOrg()) }),
+  );
+
   registerPrompts(server);
 
   read(
@@ -966,6 +1025,7 @@ export function registerTools(server, client, env = process.env) {
       if (creative_type === "DYNAMIC_PRODUCT") {
         if (media_id || url) throw new Error("A DYNAMIC_PRODUCT creative has no media or url of its own: the products come from the catalog. Leave media_id and url out.");
         const obj = buildDynamicCreative({ adAccountId: account(), profileId: brandProfile(profile_id), name, headline, callToAction: call_to_action, templateId: dynamic_template_id, productSetId: product_set_id, urlMacroParameters: url_macro_parameters });
+        await ownProductSet(product_set_id);
         const template = await client.getEntity("dynamic_template", dynamic_template_id);
         if (template.ad_account_id && template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
         return {

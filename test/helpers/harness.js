@@ -62,6 +62,7 @@ export function fakeSnap(world = {}) {
         const o = db[seg[0]][seg[1]];
         return o ? json(wrap(seg[0], [o])) : json({ request_status: "ERROR", debug_message: "not found" }, 404);
       }
+      if (seg[0] === "organizations" && seg[2] === "catalogs") return json(wrap("catalogs", Object.values(db.catalogs).filter((c) => c.organization_id === seg[1])));
       if (seg[0] === "me") return json({ me: { display_name: "Tester" } });
       return json({}, 404);
     }

@@ -112,6 +112,7 @@ test("catalog campaign, ad squad, creative and ad: the whole chain stays PAUSED 
   const cArgs = { name: "DPA creative", headline: "Shop now", creative_type: "DYNAMIC_PRODUCT", dynamic_template_id: "dt1", product_set_id: "ps1", call_to_action: "SHOP_NOW" };
   assert.match((await t.call("snap_create_creative", { ...cArgs, media_id: "m1" })).error, /no media or url of its own/);
   assert.match((await t.call("snap_create_creative", { ...cArgs, dynamic_template_id: "dtx" })).error, /another ad account/);
+  assert.match((await t.call("snap_create_creative", { ...cArgs, product_set_id: "psx" })).error, /not in any catalog of this ad account's organization/, "a product set of another organization is refused");
   assert.match((await t.call("snap_create_creative", { media_id: "m1", name: "x", headline: "y", url: "https://example.com/", dynamic_template_id: "dt1" })).error, /belong to DYNAMIC_PRODUCT/);
   const cr = await t.twoStep("snap_create_creative", cArgs);
   const creativeBody = t.writes().at(-1).body.creatives[0];

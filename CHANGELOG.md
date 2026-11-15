@@ -1,22 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-15)
 
-- `snap_set_frequency_cap` and `snap_set_ad_schedule`: change how often and when an ad squad's ads run (previewed, approved, logged, undoable when a value existed before). Snap allows an ad schedule only on lifetime-budget ad squads, so it is refused on daily-budget ones with the reason.
-- `snap_create_adsquad` takes `goal`: sales-type pixel goals, traffic (SWIPES), awareness (IMPRESSIONS) and video views. Only pixel goals need a pixel. The default is unchanged.
-- `snap_report_hourly`: results by local hour of the day. `snap_creative_compare`: the ads of a campaign or ad squad against the median ROAS, grouped by call to action. `snap_budget_advice`: suggested budget moves that net to zero and stay inside your limits, each naming the tool that applies it. Read-only.
-- Four more playbooks: Budget review, Tracking check, Competitor scan, Fix rejected ads.
+Everything below is built from Snap's documentation and mocked tests and is not yet verified on a live account. New write tools are previewed, need approval, are audited and create things PAUSED; all other new tools only read.
+
+**Catalog ads (Dynamic Product Ads)**
+- `snap_create_product_set` (Snap's filter rules are checked before anything is sent), `snap_create_dynamic_template`, `snap_list_dynamic_templates`.
+- `snap_create_campaign` takes `catalog_id`; `snap_create_adsquad` takes `product_set_id`, `dpa_mode` (retargeting / prospecting) and `audience_days`; `snap_create_creative` takes `creative_type: DYNAMIC_PRODUCT`; `snap_create_ad` creates the DYNAMIC ad and refuses a creative whose product set differs from the ad squad's. Catalogs and templates must belong to the ad account's organization / account.
+
+**Checks**
+- `snap_check_landing_pages`: opens each active ad's link once (https only, never private or link-local addresses, every redirect checked) and reports broken, slow, server-error, unreachable and non-https links, links that end on another site, and links missing parameters you name. It cannot see "out of stock" text inside a page that opens.
+- `snap_anomaly_check`: the last full local day against the usual day: spend spike or drop, zero or falling purchases (possible broken pixel), ROAS drop, cost-per-purchase spike.
+- `snap_blended_roas`: Snap's reported revenue against the revenue your store confirms.
+- `snap_billing_check` (card expiry, daily limit vs budgets, credit left), `snap_unused_media`, `snap_audience_health`, `snap_funnel`, `snap_catalog_feed_status`.
+
+**Intelligence**
+- `snap_audience_insights`: who is in an audience compared with everyone in the same countries.
+- `snap_competitor_ads`: a company's ads from Snap's public Ads Gallery (no login; nothing about your account is sent; ad text is cut and marked as untrusted).
+- `snap_capi_status` and `snap_capi_test_event`: Conversions API TEST events only (email hashed locally, validate endpoint only). There is deliberately no tool that sends real conversion events.
+
+**Controls and advice**
+- `snap_set_frequency_cap` and `snap_set_ad_schedule` (undoable when a value existed before). Snap allows an ad schedule only on lifetime-budget ad squads, so it is refused on daily-budget ones with the reason.
+- `snap_create_adsquad` takes `goal`: pixel goals (purchase, add to cart, page view, sign-up), traffic (SWIPES), awareness (IMPRESSIONS), video views. The default is unchanged.
+- `snap_report_hourly`, `snap_creative_compare`, `snap_budget_advice` (suggested moves that net to zero and stay inside your limits, each naming the tool that applies it).
+- Playbooks: Budget review, Tracking check, Competitor scan, Fix rejected ads; Weekly review and Launch checklist use the new checks.
+
+**Other**
+- `SNAP_TOOLSETS`: offer only some tool groups (setup, read, reports, checks, changes, create) to the AI app. A typo stops the server; a test fails when a new tool is missing from a group.
+- Privacy fix: the audit log now removes emails and phone numbers from logged tool arguments (by key and inside text), as it already did for credentials.
 - Not built, because Snap's documentation does not show a safe form: custom placement control, bid-strategy switching.
-- `snap_audience_insights`: who is in an audience (Snap's Audience Insights): which age groups, genders, languages, interests and devices appear more or less than in everyone in the same countries.
-- `snap_competitor_ads`: a company's ads from Snap's public Ads Gallery. No login is used and nothing about your account is sent. Ad text is returned cut and marked as untrusted data.
-- `snap_capi_status` and `snap_capi_test_event`: Conversions API test events. The status tool reads the last 24 hours of test events and Snap's reasons for invalid ones; the test tool sends one previewed test event to the validate endpoint, with the email hashed locally. There is deliberately no tool that sends real conversion events.
-- Audit log: emails and phone numbers are now removed from logged tool arguments (by key and inside text), as credentials already were.
-- `snap_check_landing_pages`: opens each active ad's link once (https only, never private or link-local addresses, every redirect checked) and reports broken, slow, server-error, unreachable and non-https links, links that end on another site, and links missing parameters you name (for example `utm_source`). It cannot see "out of stock" text inside a page that opens.
-- `snap_anomaly_check`: the last full local day against the usual day, account level: spend spike or drop, zero or falling purchases (possible broken pixel or store), ROAS drop, cost-per-purchase spike.
-- `snap_blended_roas`: Snap's reported revenue against the revenue your store confirms, with both ROAS figures and a verdict.
-- The Weekly review and Launch checklist playbooks use the new checks.
-- Built from Snap's documentation and mocked tests; not yet verified live.
-- Catalog ads (Dynamic Product Ads): `snap_create_product_set` (Snap's filter rules checked before anything is sent), `snap_create_dynamic_template`, `snap_list_dynamic_templates`; `snap_create_campaign` takes `catalog_id`; `snap_create_adsquad` takes `product_set_id`, `dpa_mode` (retargeting / prospecting) and `audience_days`; `snap_create_creative` takes `creative_type: DYNAMIC_PRODUCT`; `snap_create_ad` creates the DYNAMIC ad and refuses a creative whose product set differs from the ad squad's. Catalogs and templates must belong to the ad account's organization / account. Everything is created PAUSED and the money limits apply. Built from Snap's guide and mocked tests; not yet verified live.
 
 ## 0.6.0 (2026-11-14)
 

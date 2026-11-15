@@ -65,6 +65,11 @@ export const ENTITIES = {
     createPath: (obj) => `/adaccounts/${obj.ad_account_id}/dynamic_templates`,
     updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/dynamic_templates`,
   },
+  fundingsource: {
+    plural: "fundingsources",
+    singular: "fundingsource",
+    getPath: (id) => `/fundingsources/${id}`,
+  },
   catalog: {
     plural: "catalogs",
     singular: "catalog",

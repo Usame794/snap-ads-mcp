@@ -1,15 +1,16 @@
 # Architecture and design notes
 
-For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 77 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
+For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 82 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
 
 ## Architecture (src/)
+- `hygiene.js`: billing, unused media, audience health, funnel, catalog feed status (read-only). `toolsets.js`: tool groups for SNAP_TOOLSETS (a test fails when a new tool is not in a group).
 - `controls.js`: frequency cap and ad schedule planners. `advice.js`: hourly report, creative comparison and budget advice (read-only suggestions).
 - `intel.js`: Audience Insights, the public Ads Gallery, Conversions API test events (the token goes only to tr.snapchat.com; the real events endpoint is never called).
 - `checks.js`: landing page checker (https only, public addresses only, redirects followed by hand), anomaly check, blended ROAS (read-only).
 - `catalog-ads.js`: product set filter rules, dynamic template / creative builders and DPA audiences (Snap's Dynamic Product Ads guide).
 - `insights.js`: audience size, spend pacing, ad preview (read-only). `prompts.js`: the playbooks (MCP prompts).
 - `setup.js`: the guided `setup` command; `oauth.js`: authorization link, code exchange and ad-account list (used by `setup` and the `snap_connect` tool). `manifest.json` + `scripts/build-mcpb.js`: the Claude Desktop extension (`npm run pack:mcpb`).
-- `cli.js`: npm command (`npx ads-mcp-for-snapchat`): no command starts the server; `setup`, `init`, `where`, `save-secret`, `auth`, `check`, `weekly-report` run the setup scripts. `index.js`: MCP server entry. `tools.js`: all 77 tool definitions (zod schemas, handlers).
+- `cli.js`: npm command (`npx ads-mcp-for-snapchat`): no command starts the server; `setup`, `init`, `where`, `save-secret`, `auth`, `check`, `weekly-report` run the setup scripts. `index.js`: MCP server entry. `tools.js`: all 82 tool definitions (zod schemas, handlers).
 - `snap.js`: `SnapClient` (token refresh, retry), `ENTITIES` (campaign, adsquad, ad, creative, media, segment), sanitize-for-create/update helpers, `createEntity/updateEntity/getEntity/listChildren`, `upload`.
 - `env.js`: `.env` loading, `setEnvValue` (writes a value without printing it) and `dataDir` (the project folder for a git checkout; `~/.ads-mcp-for-snapchat` for a copy inside `node_modules`; `SNAP_HOME` overrides). The default change log and `exports/` live there too.
 - `changes.js`: plan functions (status, budget, exclusions, rename, bid, targeting, schedule), `applyChange` (logs before/after), `containsDeep`, `planUndo`.
