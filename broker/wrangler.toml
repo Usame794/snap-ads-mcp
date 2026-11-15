@@ -1,0 +1,10 @@
+# Cloudflare Worker settings for the login service. See broker/README.md.
+name = "ads-mcp-for-snapchat-login"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Set these as secrets, never in this file:
+#   wrangler secret put SNAP_CLIENT_ID
+#   wrangler secret put SNAP_CLIENT_SECRET
+#   wrangler secret put STATE_KEY        (any random text of 32+ characters)
+# Optional: PUBLIC_URL, if the address people reach is not the Worker's own origin.

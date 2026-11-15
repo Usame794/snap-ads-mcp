@@ -3,9 +3,9 @@
   "manifest_version": "0.3",
   "name": "ads-mcp-for-snapchat",
   "display_name": "Ads MCP for Snapchat",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
-  "long_description": "Unofficial. Runs on your computer with your own Snapchat OAuth app. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\".",
+  "long_description": "Unofficial. Runs on your computer with your own Snapchat OAuth app. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". With the shared login you only log in with Snapchat; no OAuth app is needed.",
   "author": {
     "name": "Usame794",
     "url": "https://github.com/Usame794"
@@ -46,15 +46,15 @@
     "client_id": {
       "type": "string",
       "title": "Client ID",
-      "description": "From Snap Business Manager > Business Details > OAuth Apps. Create an app there with the Redirect URI https://127.0.0.1/callback.",
-      "required": true
+      "description": "Only if you use your own Snapchat OAuth app (Business Details > OAuth Apps, Redirect URI https://127.0.0.1/callback). Leave empty to use the shared login.",
+      "required": false
     },
     "client_secret": {
       "type": "string",
       "title": "Client Secret",
-      "description": "Shown once when you create the OAuth app. Stored by Claude Desktop, never sent to the chat.",
+      "description": "Only with your own OAuth app. Shown once when you create it. Stored by Claude Desktop, never sent to the chat. Leave empty to use the shared login.",
       "sensitive": true,
-      "required": true
+      "required": false
     },
     "max_daily_budget": {
       "type": "number",

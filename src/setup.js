@@ -10,6 +10,7 @@ import { envFile, ROOT, setEnvValue, dataDir } from "./env.js";
 import { secretProblems } from "./clipboard.js";
 import { authorizeUrl, DEFAULT_REDIRECT, exchangeCode, extractCode, listAdAccounts, looksLikeClientId, newState } from "./oauth.js";
 import { SnapClient } from "./snap.js";
+import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { init } from "./init.js";
 
 const readSettings = (file) => {
@@ -98,7 +99,7 @@ async function askUntil(io, question, check) {
   throw new Error("Too many invalid answers. Run setup again when you have the details.");
 }
 
-export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open = openInBrowser, exec = execFileSync, claudeAvailable = hasClaude, root = ROOT } = {}) {
+export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open = openInBrowser, exec = execFileSync, claudeAvailable = hasClaude, root = ROOT, broker, startLogin = startBrokerLogin } = {}) {
   const say = io.print;
   const created = init(file).created;
   let cur = readSettings(file);
@@ -108,57 +109,87 @@ export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open =
   say("Nothing here can change your ads. It only connects the account and saves settings on this computer.");
   say("");
 
-  // 1. OAuth app
-  say("STEP 1 of 5: your Snapchat OAuth app (one time, about 3 minutes)");
-  say("  1. Open https://business.snapchat.com and go to Business Details > OAuth Apps > + OAuth App.");
-  say(`  2. Any app name. Redirect URI: ${DEFAULT_REDIRECT}`);
-  say("  3. Create it. Copy the Client ID, and the Client Secret (shown only once).");
-  say("");
-  const keepId = looksLikeClientId(cur.SNAP_CLIENT_ID ?? "");
-  const idAnswer = await askUntil(io, keepId ? "Client ID (Enter keeps the saved one): " : "Client ID: ", (a) => (keepId && !a) || looksLikeClientId(a) ? null : "That is not a Client ID. It looks like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.");
-  const clientId = idAnswer || cur.SNAP_CLIENT_ID;
-  if (clientId !== cur.SNAP_CLIENT_ID) setEnvValue("SNAP_CLIENT_ID", clientId, file);
-
-  const keepSecret = Boolean(cur.SNAP_CLIENT_SECRET) && !secretProblems(cur.SNAP_CLIENT_SECRET).length && clientId === cur.SNAP_CLIENT_ID;
+  // The shared login: no OAuth app to create. Offered only on a fresh settings file (own app credentials are never replaced here).
+  let clientId = null;
   let secret = null;
-  for (let i = 0; i < 5 && secret === null; i++) {
-    const a = await io.askSecret(keepSecret ? "Client Secret (hidden; Enter keeps the saved one): " : "Client Secret (hidden while you type or paste): ");
-    if (!a && keepSecret) secret = cur.SNAP_CLIENT_SECRET;
-    else if (secretProblems(a).length) say(`  That does not look like a secret: ${secretProblems(a).join(", ")}. Copy it again.`);
-    else secret = a;
-  }
-  if (secret === null) throw new Error("No valid secret was entered.");
-  if (secret !== cur.SNAP_CLIENT_SECRET) setEnvValue("SNAP_CLIENT_SECRET", secret, file);
-  const redirectUri = cur.SNAP_REDIRECT_URI || DEFAULT_REDIRECT;
-  if (!cur.SNAP_REDIRECT_URI) setEnvValue("SNAP_REDIRECT_URI", redirectUri, file);
-  say("  Saved.");
-  say("");
-
-  // 2. Authorize
-  say("STEP 2 of 5: approve access in the browser");
   let token = null;
-  for (let i = 0; i < 3 && !token; i++) {
-    const state = newState();
-    const url = authorizeUrl({ clientId, redirectUri, state });
-    const opened = open(url);
-    say(opened ? "  Your browser opened. Log in to Snapchat and click Continue." : "  Open this link, log in to Snapchat and click Continue:");
-    if (!opened) say(`  ${url}`);
-    say("  The browser then shows an error page ('can't connect' is normal). Copy the whole address from its address bar.");
-    const pasted = await io.ask("Paste that address here: ");
-    try {
-      token = await exchangeCode({ clientId, clientSecret: secret, redirectUri, code: extractCode(pasted, state), fetchImpl });
-    } catch (e) {
-      say(`  ${e.message}`);
-    }
+  let shared = false;
+  const brokerUrl = broker === undefined ? brokerUrlFrom(process.env) : broker;
+  if (brokerUrl && !cur.SNAP_CLIENT_SECRET) {
+    say("There are two ways to connect:");
+    say("  1. Shared login (easiest): just log in with Snapchat. No OAuth app to create.");
+    say("  2. Your own Snapchat OAuth app (about 5 minutes).");
+    say(`     The shared login uses ${brokerUrl}, which only passes your login along and stores nothing. See PRIVACY.md.`);
+    const choice = await askUntil(io, "Choose 1 or 2 [1]: ", (a) => (!a || a === "1" || a === "2" ? null : "Type 1 or 2."));
+    shared = choice !== "2";
   }
-  if (!token) throw new Error("Could not connect. Check the Redirect URI on the OAuth app is exactly " + redirectUri + ", then run setup again.");
-  setEnvValue("SNAP_REFRESH_TOKEN", token, file);
-  say("  Connected. Access saved on this computer only.");
-  say("");
+  if (shared) {
+    say("");
+    say("STEPS 1 and 2 of 5: log in with Snapchat (no OAuth app needed)");
+    const login = await startLogin({ brokerUrl });
+    const opened = open(login.url);
+    say(opened ? "  Your browser opened. Log in to Snapchat and click Continue." : "  Open this link, log in to Snapchat and click Continue:");
+    if (!opened) say(`  ${login.url}`);
+    say("  Waiting for you to finish in the browser (up to 5 minutes)...");
+    token = await login.done;
+    setEnvValue("SNAP_BROKER_URL", brokerUrl, file);
+    setEnvValue("SNAP_REFRESH_TOKEN", token, file);
+    say("  Connected. Access saved on this computer only.");
+    say("");
+  } else {
+    // 1. OAuth app
+    say("STEP 1 of 5: your Snapchat OAuth app (one time, about 3 minutes)");
+    say("  1. Open https://business.snapchat.com and go to Business Details > OAuth Apps > + OAuth App.");
+    say(`  2. Any app name. Redirect URI: ${DEFAULT_REDIRECT}`);
+    say("  3. Create it. Copy the Client ID, and the Client Secret (shown only once).");
+    say("");
+    const keepId = looksLikeClientId(cur.SNAP_CLIENT_ID ?? "");
+    const idAnswer = await askUntil(io, keepId ? "Client ID (Enter keeps the saved one): " : "Client ID: ", (a) => (keepId && !a) || looksLikeClientId(a) ? null : "That is not a Client ID. It looks like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.");
+    clientId = idAnswer || cur.SNAP_CLIENT_ID;
+    if (clientId !== cur.SNAP_CLIENT_ID) setEnvValue("SNAP_CLIENT_ID", clientId, file);
+
+    const keepSecret = Boolean(cur.SNAP_CLIENT_SECRET) && !secretProblems(cur.SNAP_CLIENT_SECRET).length && clientId === cur.SNAP_CLIENT_ID;
+    secret = null;
+    for (let i = 0; i < 5 && secret === null; i++) {
+      const a = await io.askSecret(keepSecret ? "Client Secret (hidden; Enter keeps the saved one): " : "Client Secret (hidden while you type or paste): ");
+      if (!a && keepSecret) secret = cur.SNAP_CLIENT_SECRET;
+      else if (secretProblems(a).length) say(`  That does not look like a secret: ${secretProblems(a).join(", ")}. Copy it again.`);
+      else secret = a;
+    }
+    if (secret === null) throw new Error("No valid secret was entered.");
+    if (secret !== cur.SNAP_CLIENT_SECRET) setEnvValue("SNAP_CLIENT_SECRET", secret, file);
+    const redirectUri = cur.SNAP_REDIRECT_URI || DEFAULT_REDIRECT;
+    if (!cur.SNAP_REDIRECT_URI) setEnvValue("SNAP_REDIRECT_URI", redirectUri, file);
+    say("  Saved.");
+    say("");
+
+    // 2. Authorize
+    say("STEP 2 of 5: approve access in the browser");
+    token = null;
+    for (let i = 0; i < 3 && !token; i++) {
+      const state = newState();
+      const url = authorizeUrl({ clientId, redirectUri, state });
+      const opened = open(url);
+      say(opened ? "  Your browser opened. Log in to Snapchat and click Continue." : "  Open this link, log in to Snapchat and click Continue:");
+      if (!opened) say(`  ${url}`);
+      say("  The browser then shows an error page ('can't connect' is normal). Copy the whole address from its address bar.");
+      const pasted = await io.ask("Paste that address here: ");
+      try {
+        token = await exchangeCode({ clientId, clientSecret: secret, redirectUri, code: extractCode(pasted, state), fetchImpl });
+      } catch (e) {
+        say(`  ${e.message}`);
+      }
+    }
+    if (!token) throw new Error("Could not connect. Check the Redirect URI on the OAuth app is exactly " + redirectUri + ", then run setup again.");
+    setEnvValue("SNAP_REFRESH_TOKEN", token, file);
+    say("  Connected. Access saved on this computer only.");
+    say("");
+
+  }
 
   // 3. Ad account
   say("STEP 3 of 5: choose the ad account");
-  const client = new SnapClient({ env: { SNAP_CLIENT_ID: clientId, SNAP_CLIENT_SECRET: secret, SNAP_REFRESH_TOKEN: token }, fetchImpl });
+  const client = new SnapClient({ env: shared ? { SNAP_REFRESH_TOKEN: token, SNAP_BROKER_URL: brokerUrl } : { SNAP_CLIENT_ID: clientId, SNAP_CLIENT_SECRET: secret, SNAP_REFRESH_TOKEN: token }, fetchImpl });
   const me = (await client.request("GET", "/me")).me ?? {};
   say(`  Logged in as ${me.display_name ?? me.email ?? "your Snapchat login"}.`);
   const accounts = await listAdAccounts(client);
