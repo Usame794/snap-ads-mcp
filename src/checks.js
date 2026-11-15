@@ -2,7 +2,7 @@
 // reported revenue does the store confirm. None of them changes anything in the ad account.
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { dailyReport } from "./report.js";
+import { accountTotals, dailyReport, totalsOf } from "./report.js";
 import { localClock } from "./insights.js";
 import { shiftIso } from "./fatigue.js";
 
@@ -98,15 +98,43 @@ async function pool(items, size, fn) {
   return out;
 }
 
-export async function landingPageReport(client, { adAccountId, requiredParams = [], maxUrls = 100, check = checkUrl, checkOptions = {} }) {
-  const ads = await client.listPaged(`/adaccounts/${adAccountId}/ads`, "ad");
-  const creatives = await client.listPaged(`/adaccounts/${adAccountId}/creatives`, "creative");
-  const byCreative = new Map(creatives.items.map((c) => [c.id, c]));
-  const active = ads.items.filter((a) => a.status === "ACTIVE");
+// Only what can deliver is read: ACTIVE campaigns, their ACTIVE ad squads and those squads' ACTIVE ads (reading every ad of a big
+// account took minutes on a live account), then only the creatives those ads use. A time limit keeps the answer prompt; if it is
+// reached the answer says how much was covered.
+export async function landingPageReport(client, { adAccountId, requiredParams = [], maxUrls = 100, check = checkUrl, checkOptions = {}, timeBudgetMs = 40_000, now = () => Date.now() }) {
+  const started = now();
+  const timeUp = () => now() - started > timeBudgetMs;
+  const campaigns = await client.listPaged(`/adaccounts/${adAccountId}/campaigns`, "campaign");
+  const activeCampaigns = campaigns.items.filter((c) => c.status === "ACTIVE");
+  const squads = [];
+  await pool(activeCampaigns, 5, async (c) => {
+    if (timeUp()) return;
+    for (const s of await client.listChildren("campaign", c.id, "adsquad")) if (s.status === "ACTIVE") squads.push({ ...s, campaign_name: c.name });
+  });
+  const active = [];
+  await pool(squads, 5, async (sq) => {
+    if (timeUp()) return;
+    for (const ad of await client.listChildren("adsquad", sq.id, "ad")) if (ad.status === "ACTIVE") active.push(ad);
+  });
+  const creativeIds = [...new Set(active.map((a) => a.creative_id).filter(Boolean))];
+  const byCreative = new Map();
+  await pool(creativeIds, 8, async (id) => {
+    if (timeUp()) return;
+    try {
+      byCreative.set(id, await client.getEntity("creative", id));
+    } catch {
+      byCreative.set(id, null);
+    }
+  });
   const byUrl = new Map();
   let withoutLink = 0;
+  let creativesUnread = 0;
   for (const ad of active) {
-    const urls = urlsOfCreative(byCreative.get(ad.creative_id));
+    if (ad.creative_id && !byCreative.has(ad.creative_id)) {
+      creativesUnread += 1;
+      continue;
+    }
+    const urls = urlsOfCreative(byCreative.get(ad.creative_id) ?? undefined);
     if (!urls.length) withoutLink += 1;
     for (const url of urls) {
       if (!byUrl.has(url)) byUrl.set(url, []);
@@ -115,24 +143,31 @@ export async function landingPageReport(client, { adAccountId, requiredParams = 
   }
   const all = [...byUrl.keys()];
   const toCheck = all.slice(0, maxUrls);
-  const results = await pool(toCheck, 5, (u) => check(u, checkOptions));
+  const results = [];
+  await pool(toCheck, 5, async (u) => {
+    results.push(timeUp() ? { url: u, verdict: "NOT_CHECKED", detail: "Out of time" } : await check(u, checkOptions));
+  });
   const rows = results.map((r) => {
     const missing = requiredParams.filter((p) => { try { return !new URL(r.url).searchParams.has(p); } catch { return true; } });
     return { ...r, ads: byUrl.get(r.url), ...(r.final_url && !sameHost(r.url, r.final_url) ? { lands_on_other_site: new URL(r.final_url).hostname } : {}), ...(missing.length ? { missing_params: missing } : {}) };
   });
-  const problems = rows.filter((r) => !["OK"].includes(r.verdict) || r.missing_params || r.lands_on_other_site);
+  const problems = rows.filter((r) => !["OK", "NOT_CHECKED"].includes(r.verdict) || r.missing_params || r.lands_on_other_site);
   const counts = {};
   for (const r of rows) counts[r.verdict] = (counts[r.verdict] ?? 0) + 1;
+  const outOfTime = timeUp();
   return {
+    active_campaigns: activeCampaigns.length,
+    active_squads: squads.length,
     active_ads: active.length,
     ads_without_a_web_link: withoutLink,
-    links_checked: rows.length,
-    ...(all.length > toCheck.length ? { links_not_checked: all.length - toCheck.length, warning: `Only the first ${maxUrls} distinct links were checked.` } : {}),
-    ...(ads.complete && creatives.complete ? {} : { warning_incomplete: "The ad or creative list was INCOMPLETE; some ads were not looked at." }),
+    links_checked: rows.filter((r) => r.verdict !== "NOT_CHECKED").length,
+    ...(all.length > toCheck.length ? { links_not_checked: all.length - toCheck.length, warning: `Only the first ${maxUrls} distinct links were looked at.` } : {}),
+    ...(outOfTime || creativesUnread || counts.NOT_CHECKED ? { partial: true, partial_reason: `Stopped after about ${Math.round(timeBudgetMs / 1000)} seconds: ${counts.NOT_CHECKED ?? 0} link(s) and ${creativesUnread} ad(s) were not looked at. Run it again, or lower max_links.` } : {}),
+    ...(campaigns.complete ? {} : { warning_incomplete: "The campaign list was INCOMPLETE; some ads were not looked at." }),
     by_verdict: counts,
     problems,
-    all_links_ok: !problems.length,
-    not_checked: "Only whether the page opens is checked. A page that opens but shows 'out of stock' or an error message inside is not detected. Catalog, Story, Snap-only and app creatives have no web link to check.",
+    all_links_ok: !problems.length && !outOfTime,
+    not_checked: "Only whether the page opens is checked. A page that opens but shows 'out of stock' or an error message inside is not detected. Catalog, Story, Snap-only and app creatives have no web link to check. Only ACTIVE ads of ACTIVE ad squads are read.",
   };
 }
 
@@ -189,7 +224,13 @@ export async function anomalyCheck(client, { adAccountId, offset = "+00:00", bas
 
 // ---------- Blended ROAS ----------
 
-export async function blendedRoas(client, { adAccountId, offset = "+00:00", storeRevenue, storeOrders, days = 7, startDate, endDate, now = new Date(), report = dailyReport }) {
+// Account totals for a window, in the same shape dailyReport gives (built from the campaign breakdown: see report.js).
+async function accountReport(client, { id, start_time, end_time }) {
+  const { stats, incomplete } = await accountTotals(client, id, { start_time, end_time, fields: "spend,conversion_purchases,conversion_purchases_value" });
+  return { ...totalsOf([stats]), ...(incomplete ? { warning: "Snap returned more pages than were read; the totals are a lower bound." } : {}) };
+}
+
+export async function blendedRoas(client, { adAccountId, offset = "+00:00", storeRevenue, storeOrders, days = 7, startDate, endDate, now = new Date(), report = accountReport }) {
   let start;
   let end;
   if (startDate || endDate) {

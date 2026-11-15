@@ -47,7 +47,13 @@ export async function audienceInsights(client, { adAccountId, targeting, base, c
   const baseSpec = buildTargeting(base ?? { countries: targeting.countries });
   if (category && !INSIGHT_CATEGORIES.includes(category)) throw new Error(`category must be one of ${INSIGHT_CATEGORIES.join(", ")}`);
   const data = await client.request("POST", `/adaccounts/${adAccountId}/targeting_insights`, { query: { dimension_category: category }, body: { base_spec: baseSpec, targeting_spec: spec } });
-  return { ...summarizeInsights(data), targeting: spec, base: baseSpec };
+  const summary = summarizeInsights(data);
+  return {
+    ...summary,
+    ...(summary.groups.length ? {} : { note: "No group differs noticeably from the comparison audience. That is expected when your targeting is only the countries (the same as the comparison). Add ages, a gender, interests or a device to see differences." }),
+    targeting: spec,
+    base: baseSpec,
+  };
 }
 
 // ---------- Ads Gallery (public ads library, no login) ----------

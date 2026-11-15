@@ -146,21 +146,31 @@ export class SnapClient {
     this.tokenExpiry = 0;
   }
 
-  // Calls to Snap's Conversions API host (test-event tools only). The token goes to this one fixed host. A 4xx on POST is returned
-  // with its body (Snap explains an INVALID test event there); a failed GET throws.
+  // Calls to Snap's Conversions API host (test-event tools only). Snap's test tools take the token as an `access_token` parameter
+  // (an OAuth access token works, or a Conversions API token made in Ads Manager: set SNAP_CAPI_TOKEN to use that one). The token
+  // goes to this one fixed host. A 4xx on POST is returned with its body (Snap explains an INVALID test event there); a failed GET throws.
   async requestTr(method, path, { body } = {}) {
-    const url = new URL(TR + path);
+    const [pathname, search = ""] = String(path).split("?");
+    const url = new URL(TR + pathname);
     if (url.hostname !== "tr.snapchat.com") throw new Error("refusing to send the token to another host");
-    const send = async () =>
-      this.fetchRetry(url, { method, headers: { Authorization: `Bearer ${await this.accessToken()}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    url.search = search;
+    const own = this.env.SNAP_CAPI_TOKEN || null;
+    const send = async () => {
+      const token = own ?? (await this.accessToken());
+      url.searchParams.set("access_token", token);
+      return this.fetchRetry(url, { method, headers: { ...(own ? {} : { Authorization: `Bearer ${token}` }), "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    };
     let res = await send();
-    if (res.status === 401) {
+    if (res.status === 401 && !own) {
       this.token = null;
       this.tokenExpiry = 0;
       res = await send();
     }
     const data = await res.json().catch(() => ({}));
-    if (method === "GET" && !res.ok) throw new Error(`Snap Conversions API ${method} ${path.split("?")[0]} failed (${res.status}): ${String(data.reason ?? data.debug_message ?? "").slice(0, 300)}`);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`Snap refused the token for the Conversions API test tools (${res.status}: ${String(data.reason ?? data.detail ?? "Invalid access token").slice(0, 120)}). ${own ? "Check SNAP_CAPI_TOKEN." : "Create a Conversions API token in Ads Manager (Events Manager > Conversions API > Generate token) and set SNAP_CAPI_TOKEN in your settings."}`);
+    }
+    if (method === "GET" && !res.ok) throw new Error(`Snap Conversions API ${method} ${pathname} failed (${res.status}): ${String(data.reason ?? data.debug_message ?? "").slice(0, 300)}`);
     return { status: res.status, data };
   }
 

@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 (2026-11-15)
 
+Fixes from the first run of `verify` on a real ad account (19 of 24 checks passed; these are the other five and some rough edges). Mocked tests could not have found them.
+
+- **Account-level numbers** (`snap_anomaly_check`, `snap_funnel`, `snap_report_hourly`, `snap_blended_roas`, `snap_portfolio_summary`): Snap's account-level stats only accept the `spend` field ("Only field 'spend' should be used when querying AdAccount stats"). Totals are now built from the per-campaign breakdown, the query the weekly report already used. Time series are merged from the same breakdown, then checked against Snap's own spend total; if the answer is not the whole account they are rebuilt from the active campaigns, and the answer states its coverage instead of showing silent zeros.
+- **`snap_check_landing_pages`** timed out on a big account because it read every ad. It now reads only ACTIVE campaigns, their ACTIVE ad squads and those squads' ACTIVE ads, fetches only the creatives those ads use, and stops after about 40 seconds with a clear "partial" note rather than claiming everything is fine.
+- **Conversions API test tools** (`snap_capi_*`): the token is now sent as Snap documents it (an `access_token` parameter). New optional setting `SNAP_CAPI_TOKEN` for a Conversions API token made in Ads Manager, used only for `tr.snapchat.com`. A refusal now says exactly what to do.
+- `snap_audience_insights` explains an empty answer (targeting equal to the comparison). `snap_budget_advice` says how many ad squads were compared and why nothing is suggested. `snap_catalog_feed_status` judges staleness against each feed's own schedule and counts only real upload errors, not warnings. `verify` shows more detail, no longer times out on slow tools, and uses a narrowed targeting for the insights check.
 - The GitHub repository is now `Usame794/snapchat-ads-mcp`; links in the package, the registry entry, the README and the login service pages use the new name.
 - `verify` command: runs every read-only tool on your real account and prints what worked, what failed (with a short, tidy reason) and what was skipped. It only calls tools that declare themselves read-only and forces read-only mode; a test checks it sends nothing but GETs and the two read-only POSTs (audience size and insights).
 - `broker/ASK-SNAP.md`: the message to send to Snap before announcing the shared login.

@@ -89,6 +89,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_MAX_ADDED_DAILY_BUDGET_24H` | 2 x the line above | Most daily budget this server may add to the account in any 24 hours, all tools together: budgets it starts plus budget increases |
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
+| `SNAP_CAPI_TOKEN` | (none) | Only for the Conversions API test tools (`snap_capi_*`): a Conversions API token made in Ads Manager (Events Manager > Conversions API > Generate token), used if Snap does not accept your normal login there. Sent only to `tr.snapchat.com`. |
 | `SNAP_BROKER_URL` | (none) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
 | `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
