@@ -121,7 +121,7 @@ export async function breakdownReport(client, { entity, id, start_time, end_time
 }
 
 export const DIMENSIONS = ["country", "gender", "age", "region", "dma", "make"];
-const ENTITY_BASE = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
+const ENTITY_BASE = { adaccount: "adaccounts", campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
 
 // One row per day (synchronous limit: 31 days).
 export async function dailyReport(client, { entity, id, start_time, end_time, swipe_up_attribution_window, view_attribution_window }) {
