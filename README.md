@@ -36,7 +36,7 @@ When a login service is available (see `broker/README.md` and `PRIVACY.md`), you
 First, once: in [Snap Business Manager](https://business.snapchat.com) open **Business Details > OAuth Apps > + OAuth App**, use the Redirect URI `https://127.0.0.1/callback`, and copy the **Client ID** and **Client Secret** (the secret is shown only once).
 
 **Claude Desktop (no terminal):**
-1. Download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snap-ads-mcp/releases/latest) and double-click it. Claude Desktop shows an install screen.
+1. Download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest) and double-click it. Claude Desktop shows an install screen.
 2. Enter the Client ID and Client Secret, your highest daily budget and (optional) your main country. Leave **Read-only** on for now.
 3. In a chat, ask: **"Connect my Snapchat ad account."** Claude gives you a link; approve in the browser, paste back the address it lands on, and pick your ad account from the list.
 4. Quit and reopen Claude Desktop. Ask: "call snap_ping".

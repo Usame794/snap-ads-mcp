@@ -6,7 +6,7 @@ Send this through Snap's developer or Business support. Replace the placeholders
 
 Hello,
 
-I maintain an open-source, unofficial tool called "Ads MCP for Snapchat" (https://github.com/Usame794/snap-ads-mcp). It runs on each advertiser's own computer and lets an AI assistant read reports and make previewed, approved changes to the advertiser's **own** ad account through the Marketing API. It is not affiliated with Snap Inc.
+I maintain an open-source, unofficial tool called "Ads MCP for Snapchat" (https://github.com/Usame794/snapchat-ads-mcp). It runs on each advertiser's own computer and lets an AI assistant read reports and make previewed, approved changes to the advertiser's **own** ad account through the Marketing API. It is not affiliated with Snap Inc.
 
 Today each advertiser creates their own OAuth app. To make setup easier I built an optional login service (code in the `broker` folder of the repository, privacy page: [PRIVACY PAGE ADDRESS]) that uses **one shared OAuth app**:
 
