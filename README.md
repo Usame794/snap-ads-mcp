@@ -83,6 +83,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_MAX_ADDED_DAILY_BUDGET_24H` | 2 x the line above | Most daily budget this server may add to the account in any 24 hours, all tools together: budgets it starts plus budget increases |
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
+| `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `setup, read, reports, checks, changes, create` (comma-separated). Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
 | `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
 | `SNAP_APPROVAL_TTL_SECONDS` | 600 | Lifetime of an approval token |
 | `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
@@ -125,6 +126,11 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_report_hourly` | read: spend, purchases and ROAS by local hour of the day (last 1-7 days), best and worst hours |
 | `snap_creative_compare` | read: the ads of a campaign or ad squad ranked against the median ROAS (WINNER / LAGGING), grouped by call to action |
 | `snap_budget_advice` | read: suggested daily-budget moves (lower the weak, raise the proven, funded by what is freed, inside your limits), each naming the tool that applies it |
+| `snap_billing_check` | read: ad account status, funding sources (card expiry, daily limit vs budgets, credit left) and a verdict |
+| `snap_unused_media` | read: uploaded images and videos no creative uses (never deletes) |
+| `snap_audience_health` | read: audiences that are not targetable, tiny, stale, or unused by active ad squads |
+| `snap_funnel` | read: impressions → swipes → views → add to cart → checkout → purchases with the rate at each step and the weakest step |
+| `snap_catalog_feed_status` | read: for each catalog feed, the last completed upload, the latest upload's status and issues |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |
@@ -249,7 +255,7 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 
 **Before the safety layer (earlier tests, on throwaway paused objects):** pause/enable (single and bulk), budget, bid, targeting, schedule, bulk edits, campaign / ad squad copy, ad and creative clone, create campaign and ad squad, lookalike and pixel audiences, customer-list audience (with fake data), influencer flow and batch, media upload (simple and chunked), async reports, health check, review issues, pixel health, and the guarded delete (on a throwaway campaign).
 
-**Not verified live:** `snap_audience_size`, `snap_spend_pacing` and `snap_ad_preview` (0.6.0, built from Snap's documentation and mocked tests), the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
+**Not verified live:** everything added in 0.6.0 and 0.7.0 (`snap_audience_size`, `snap_spend_pacing`, `snap_ad_preview`; catalog ads; the landing page, anomaly, blended ROAS, audience insights, competitor ads, Conversions API test, hourly, creative comparison, budget advice, billing, unused media, audience health, funnel and feed tools; frequency cap and ad schedule; the new ad squad goals), all built from Snap's documentation and mocked tests, the 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
 - A hosted multi-user version (this server runs on your own machine with your own credentials).

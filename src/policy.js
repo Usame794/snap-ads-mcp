@@ -1,6 +1,8 @@
 // Safety policy: every limit that protects money is parsed and validated here, once, at startup.
 // Anything invalid throws, so a typo can never silently switch a limit off (fail closed).
 
+import { parseToolsets } from "./toolsets.js";
+
 const NUMBER_RE = /^\d+(\.\d+)?$/;
 
 function readNumber(env, key, fallback, { min, max, integer = false, exclusiveMin = false }, errors) {
@@ -59,7 +61,14 @@ export function loadPolicy(env = process.env) {
   if (phoneCode && !/^[1-9]\d{0,3}$/.test(phoneCode)) errors.push("SNAP_DEFAULT_PHONE_CODE must be digits only, without + or 00, such as 1, 44 or 966.");
   const offset = env.SNAP_REPORT_UTC_OFFSET === undefined || String(env.SNAP_REPORT_UTC_OFFSET).trim() === "" ? "+00:00" : String(env.SNAP_REPORT_UTC_OFFSET).trim();
   if (!/^[+-](0\d|1[0-4]):[0-5]\d$/.test(offset)) errors.push("SNAP_REPORT_UTC_OFFSET must look like +03:00 or -05:00.");
+  let toolsets = null;
+  try {
+    toolsets = parseToolsets(env.SNAP_TOOLSETS);
+  } catch (e) {
+    errors.push(e.message);
+  }
   const policy = {
+    toolsets,
     defaultCountry: country && /^[a-z]{2}$/.test(country) ? country : null,
     defaultPhoneCode: phoneCode && /^[1-9]\d{0,3}$/.test(phoneCode) ? phoneCode : null,
     reportUtcOffset: /^[+-](0\d|1[0-4]):[0-5]\d$/.test(offset) ? offset : "+00:00",
