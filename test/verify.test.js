@@ -52,3 +52,15 @@ test("failures are reported with a short, tidy reason and counted", async () => 
   assert.ok(lines.some((l) => l.startsWith("  ✗ snap_ping")));
   assert.match(lines.at(-1), /Copy everything above/);
 });
+
+test("Snap refusing the normal login for the Conversions API test tools is a skip that names the setting, not a failure", async () => {
+  const snap = fakeSnap(sampleWorld());
+  const base = snap.fetchImpl;
+  const fetchImpl = async (url, opts) => (new URL(String(url)).hostname === "tr.snapchat.com" ? { ok: false, status: 401, json: async () => ({ reason: "Invalid access token" }), headers: { get: () => null } } : base(url, opts));
+  const client = new SnapClient({ env: { ...ENV, SNAP_PIXEL_ID: "pix-1" }, fetchImpl, sleep: async () => {} });
+  const { results } = await runVerify({ client, env: { ...ENV, SNAP_PIXEL_ID: "pix-1" }, log: () => {} });
+  const capi = results.find((r) => r.tool === "snap_capi_status");
+  assert.equal(capi.status, "SKIP");
+  assert.match(capi.detail, /needs SNAP_CAPI_TOKEN/);
+  assert.ok(results.find((r) => r.tool === "snap_ping").status === "OK", "everything else is still run");
+});
