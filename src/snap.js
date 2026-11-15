@@ -1,6 +1,7 @@
 // Thin client for the Snapchat Marketing API (https://adsapi.snapchat.com/v1).
 const API = "https://adsapi.snapchat.com/v1";
 const TOKEN_URL = "https://accounts.snapchat.com/login/oauth2/access_token";
+const TR = "https://tr.snapchat.com"; // Conversions API test-event tools
 
 // Fields the API returns but rejects (or ignores) on update.
 const READ_ONLY = [
@@ -137,6 +138,24 @@ export class SnapClient {
     this.fetch = fetchImpl;
     this.token = null;
     this.tokenExpiry = 0;
+  }
+
+  // Calls to Snap's Conversions API host (test-event tools only). The token goes to this one fixed host. A 4xx on POST is returned
+  // with its body (Snap explains an INVALID test event there); a failed GET throws.
+  async requestTr(method, path, { body } = {}) {
+    const url = new URL(TR + path);
+    if (url.hostname !== "tr.snapchat.com") throw new Error("refusing to send the token to another host");
+    const send = async () =>
+      this.fetchRetry(url, { method, headers: { Authorization: `Bearer ${await this.accessToken()}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    let res = await send();
+    if (res.status === 401) {
+      this.token = null;
+      this.tokenExpiry = 0;
+      res = await send();
+    }
+    const data = await res.json().catch(() => ({}));
+    if (method === "GET" && !res.ok) throw new Error(`Snap Conversions API ${method} ${path.split("?")[0]} failed (${res.status}): ${String(data.reason ?? data.debug_message ?? "").slice(0, 300)}`);
+    return { status: res.status, data };
   }
 
   // Reads (and the token call) retry on 429/5xx and network errors. Writes retry ONLY on 429, which Snap sends before

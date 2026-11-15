@@ -3,13 +3,14 @@
 import { appendFileSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-const SECRET_KEY = /secret|token|password|authorization|cookie|credential/i;
+const SECRET_KEY = /secret|token|password|authorization|cookie|credential|e-?mail|phone/i;
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 const AD_CODE = /adcode_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-([0-9a-f]{8})([0-9a-f]{4})/gi;
 const BEARER = /Bearer\s+[A-Za-z0-9._~+\/=-]{8,}/g;
 
-const scrub = (s) => s.replace(AD_CODE, (_m, _a, last) => `adcode_…${last}`).replace(BEARER, "Bearer [redacted]");
+const scrub = (s) => s.replace(AD_CODE, (_m, _a, last) => `adcode_…${last}`).replace(BEARER, "Bearer [redacted]").replace(EMAIL, "[email]");
 
-// Deep copy with credentials removed and single-use ad codes masked. Long strings are cut.
+// Deep copy with credentials and personal data (emails, phone numbers) removed and single-use ad codes masked. Long strings are cut.
 export function redact(value, depth = 0) {
   if (value == null || typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "string") {

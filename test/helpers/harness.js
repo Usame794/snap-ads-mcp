@@ -39,6 +39,10 @@ export function fakeSnap(world = {}) {
     const path = u.pathname.replace(/^\/v1/, "");
     calls.push({ method, path, query: Object.fromEntries(u.searchParams), body: opts.body && typeof opts.body === "string" ? JSON.parse(opts.body) : undefined });
     const seg = path.split("/").filter(Boolean);
+    if (u.hostname === "tr.snapchat.com") {
+      if (method === "POST") return json({ status: "VALID", test_event: true, reason: "Events have been processed successfully." });
+      return path.endsWith("/stats") ? json({ status: "SUCCESS", stats: { test: { latest_event_ts: 1709247922284, event_count_past_hour: 2 } } }) : json({ status: "SUCCESS", logs: [{ event_name: "PURCHASE", event_time: "1709246086907", action_source: "WEB", status: "INVALID", error_records: ["Missing price and/or currency in Purchase events"] }] });
+    }
     if (hooks.reject401 && method === hooks.reject401) {
       hooks.reject401 = null; // the access token was refused once, before anything was processed
       return json({ request_status: "ERROR", debug_message: "Unauthorized" }, 401);
