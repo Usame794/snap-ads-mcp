@@ -20,22 +20,22 @@ export function checksFor({ start, end, hasPixel, hasCountry }) {
     { tool: "snap_list_media", args: { limit: 3 }, show: (d) => count(d) },
     { tool: "snap_list_segments", args: { limit: 3 }, show: (d) => count(d) },
     { tool: "snap_spend_pacing", args: {}, show: (d) => `${d.today?.active_squads ?? "?"} active ad squads; month so far ${d.month?.month_to_date_spend ?? "?"}` },
-    { tool: "snap_anomaly_check", args: {}, show: (d) => `verdict ${d.verdict}${d.findings?.length ? ` (${d.findings.length} finding${d.findings.length === 1 ? "" : "s"})` : ""}` },
+    { tool: "snap_anomaly_check", args: {}, show: (d) => `verdict ${d.verdict}${d.findings?.length ? ` (${d.findings.map((f) => f.code).join(", ")})` : ""}; ${d.days?.length ?? 0} days read` },
     { tool: "snap_funnel", args: { days: 7 }, show: (d) => `weakest step: ${d.weakest_step ?? "n/a"}${d.missing_steps?.length ? `; missing events: ${d.missing_steps.join(", ")}` : ""}` },
-    { tool: "snap_report_hourly", args: { days: 7 }, show: (d) => `best hours ${JSON.stringify(d.best_hours ?? [])}` },
+    { tool: "snap_report_hourly", args: { days: 7 }, show: (d) => `best hours ${JSON.stringify(d.best_hours ?? [])}${d.coverage_pct != null ? `; covers ${d.coverage_pct}% of spend (${d.source})` : ""}` },
     { tool: "snap_billing_check", args: {}, show: (d) => `verdict ${d.verdict}; ${d.funding_sources?.length ?? 0} funding source(s)` },
     { tool: "snap_audience_health", args: {}, show: (d) => `${d.audiences} audiences, ${d.with_problems} with problems` },
-    { tool: "snap_unused_media", args: { limit: 5 }, show: (d) => `${d.unused_count} of ${d.media_total} files unused` },
-    { tool: "snap_budget_advice", args: {}, show: (d) => `${d.active_squads_with_a_daily_budget} squads read; ${d.increases?.length ?? 0} raise, ${d.decreases?.length ?? 0} lower suggested` },
-    { tool: "snap_check_landing_pages", args: { max_links: 20 }, show: (d) => `${d.links_checked} link(s) checked, ${d.problems?.length ?? 0} problem(s)` },
+    { tool: "snap_unused_media", args: { limit: 5 }, show: (d) => `${d.unused_count} of ${d.media_total} files unused${d.warning ? " (list cut: partial)" : ""}` },
+    { tool: "snap_budget_advice", args: {}, show: (d) => `${d.active_squads_with_a_daily_budget} squads read, ${d.squads_compared ?? "?"} compared; ${d.increases?.length ?? 0} raise, ${d.decreases?.length ?? 0} lower suggested` },
+    { tool: "snap_check_landing_pages", args: { max_links: 20 }, show: (d) => `${d.active_ads} active ads, ${d.links_checked} link(s) checked, ${d.problems?.length ?? 0} problem(s)${d.partial ? " (partial: out of time)" : ""}` },
     { tool: "snap_health_check", args: { start_time: start, end_time: end }, show: (d) => `${d.active_squads_checked} active ad squads, ${d.squads_with_issues} with issues` },
     { tool: "snap_review_issues", args: {}, show: (d) => `${d.shown ?? d.items?.length ?? 0} ad(s) not approved` },
     { tool: "snap_list_dynamic_templates", args: { limit: 5 }, show: (d) => count(d) },
-    { tool: "snap_catalog_feed_status", args: {}, show: (d) => `${d.catalogs} catalog(s), ${d.feeds_with_problems} feed(s) with problems` },
+    { tool: "snap_catalog_feed_status", args: {}, show: (d) => `${d.catalogs} catalog(s), ${d.feeds_with_problems} feed(s) with problems${d.feeds_with_problems ? `; e.g. ${d.catalogs_detail.flatMap((c) => c.feeds).find((f) => f.problems.length || f.upload_errors)?.problems?.[0] ?? "upload errors"}` : ""}` },
     { tool: "snap_pixel_health", args: {}, needs: hasPixel, setting: "SNAP_PIXEL_ID", show: (d) => `${d.top_priority_issues?.length ?? 0} top-priority issue(s)` },
     { tool: "snap_capi_status", args: {}, needs: hasPixel, setting: "SNAP_PIXEL_ID", show: (d) => `${d.test_events?.event_count_past_hour ?? 0} test events in the last hour` },
     { tool: "snap_audience_size", args: {}, needs: hasCountry, setting: "SNAP_DEFAULT_COUNTRY", show: (d) => `${d.audience_size_min}-${d.audience_size_max} people (${d.verdict})` },
-    { tool: "snap_audience_insights", args: {}, needs: hasCountry, setting: "SNAP_DEFAULT_COUNTRY", show: (d) => `${d.groups?.length ?? 0} insight group(s)` },
+    { tool: "snap_audience_insights", args: { min_age: 18, max_age: 24, gender: "FEMALE" }, needs: hasCountry, setting: "SNAP_DEFAULT_COUNTRY", show: (d) => `${d.groups?.length ?? 0} insight group(s)${d.groups?.length ? "" : " (none: unexpected for a narrowed targeting)"}` },
     { tool: "snap_competitor_ads", args: { advertiser: "Nike", status: "ACTIVE" }, show: (d) => `${d.count} ad(s) returned by the public Ads Gallery` },
     { tool: "snap_portfolio_summary", args: {}, show: (d) => (d.configured === false ? "not configured (optional: SNAP_PORTFOLIO_FILES)" : `${d.accounts?.length ?? 0} account(s)`) },
   ];
@@ -66,7 +66,7 @@ export async function runVerify({ client, env = process.env, now = new Date(), l
     else if ("needs" in c && !c.needs) row = { tool: c.tool, status: "SKIP", detail: `needs ${c.setting} in your settings` };
     else {
       try {
-        const r = await mcp.callTool({ name: c.tool, arguments: c.args });
+        const r = await mcp.callTool({ name: c.tool, arguments: c.args }, undefined, { timeout: 5 * 60_000 });
         const text = r.content?.[0]?.text ?? "";
         if (r.isError) row = { tool: c.tool, status: "FAIL", detail: tidy(text) };
         else {

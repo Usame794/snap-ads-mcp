@@ -1,6 +1,6 @@
 // Read-only advice: which hours work, which creatives win, and where budget could move. They only read and suggest. Every
 // suggestion names the tool that would apply it, and that tool still previews and waits for approval.
-import { breakdownReport } from "./report.js";
+import { accountSeries, breakdownReport } from "./report.js";
 import { localClock } from "./insights.js";
 import { shiftIso } from "./fatigue.js";
 
@@ -48,13 +48,23 @@ export async function hourlyReport(client, { entity = "adaccount", id, offset = 
   if (!Number.isInteger(days) || days < 1 || days > 7) throw new Error("days must be a whole number from 1 to 7 (Snap's hourly limit)");
   const end = localClock(now, offset).todayStart;
   const start = shiftIso(end, -days * 86_400_000);
-  const data = await client.request("GET", `/${ENTITY_BASE[entity]}/${id}/stats`, { query: { granularity: "HOUR", start_time: start, end_time: end, fields: "spend,impressions,conversion_purchases,conversion_purchases_value", omit_empty: true } });
-  const series = data.timeseries_stats?.[0]?.timeseries_stat?.timeseries ?? [];
+  const fields = "spend,impressions,conversion_purchases,conversion_purchases_value";
+  let series;
+  let accountNote = {};
+  if (entity === "adaccount") {
+    const acc = await accountSeries(client, id, { granularity: "HOUR", start_time: start, end_time: end, fields });
+    series = acc.series;
+    accountNote = { source: acc.source, coverage_pct: acc.coverage_pct, ...(acc.warning ? { warning: acc.warning } : {}) };
+  } else {
+    const data = await client.request("GET", `/${ENTITY_BASE[entity]}/${id}/stats`, { query: { granularity: "HOUR", start_time: start, end_time: end, fields, omit_empty: true } });
+    series = data.timeseries_stats?.[0]?.timeseries_stat?.timeseries ?? [];
+  }
   const out = summarizeHours(series, start);
   return {
     window: { start_time: start, end_time: end, days },
     ...out,
     note: "Hours are local to SNAP_REPORT_UTC_OFFSET, summed over the days. Purchases are Snap-attributed and arrive late, so the most recent hours can look worse than they are. Seven days is a small sample: use it as a hint. To act on it, snap_set_ad_schedule needs a lifetime-budget ad squad.",
+    ...accountNote,
     ...(series.length ? {} : { warning: "Snap returned no hourly data for this window." }),
   };
 }
@@ -117,7 +127,7 @@ export async function creativeCompare(client, { adAccountId, entity, id, start_t
 export function suggestMoves(squads, { policy, minSpend = 50, shiftUpPct = 20, shiftDownPct = 25, extraBudget = 0 }) {
   const judged = squads.filter((s) => s.spend >= minSpend && s.roas != null && s.daily_budget > 0);
   const med = median(judged.map((s) => s.roas));
-  if (med == null || judged.length < 3) return { median_roas: med == null ? null : round(med), decreases: [], increases: [], note: "Fewer than 3 ad squads have enough spend to compare, so no moves are suggested." };
+  if (med == null || judged.length < 3) return { median_roas: med == null ? null : round(med), squads_compared: judged.length, decreases: [], increases: [], note: "Fewer than 3 ad squads have enough spend to compare, so no moves are suggested." };
   const decreases = [];
   for (const s of judged.filter((x) => x.roas <= med * 0.6 || x.purchases === 0)) {
     const to = Math.max(policy.minDailyBudget, round(s.daily_budget * (1 - shiftDownPct / 100)));
@@ -139,6 +149,8 @@ export function suggestMoves(squads, { policy, minSpend = 50, shiftUpPct = 20, s
   const strip = (x) => ({ adsquad: x.name, adsquad_id: x.id, campaign: x.campaign, spend: x.spend, roas: x.roas, purchases: x.purchases, from: x.daily_budget, to: x.to, why: x.why, apply_with: `snap_set_daily_budget entity=adsquad id=${x.id} daily_budget=${x.to}` });
   return {
     median_roas: round(med),
+    squads_compared: judged.length,
+    ...(decreases.length || increases.length ? {} : { note: `${judged.length} ad squads had enough spend to compare and none is far enough from the median ROAS to suggest a move.` }),
     decreases: decreases.map(strip),
     increases: increases.map(strip),
     net_daily_budget_change: round(increases.reduce((n, x) => n + x.added, 0) - decreases.reduce((n, x) => n + x.freed, 0)),

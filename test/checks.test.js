@@ -51,32 +51,54 @@ test("urlsOfCreative: web view and collection links; nothing for Snap-only, Stor
   assert.deepEqual(urlsOfCreative(undefined), []);
 });
 
-test("landing page report: active ads only, each distinct link once, the ads behind each problem, missing parameters", async () => {
-  const ads = [
+test("landing page report: only active ads of active squads, each distinct link once, the ads behind each problem, missing parameters", async () => {
+  const campaigns = [{ id: "k1", name: "Camp", status: "ACTIVE" }, { id: "k2", name: "Paused camp", status: "PAUSED" }];
+  const squads = { k1: [{ id: "s1", status: "ACTIVE" }, { id: "s2", status: "PAUSED" }], k2: [{ id: "s9", status: "ACTIVE" }] };
+  const ads = { s1: [
     { id: "a1", name: "Ad 1", status: "ACTIVE", creative_id: "c1", ad_squad_id: "s1" },
     { id: "a2", name: "Ad 2", status: "ACTIVE", creative_id: "c2", ad_squad_id: "s1" },
-    { id: "a3", name: "Ad 3", status: "ACTIVE", creative_id: "c1", ad_squad_id: "s2" },
+    { id: "a3", name: "Ad 3", status: "ACTIVE", creative_id: "c1", ad_squad_id: "s1" },
     { id: "a4", name: "Paused", status: "PAUSED", creative_id: "c3", ad_squad_id: "s1" },
     { id: "a5", name: "Story", status: "ACTIVE", creative_id: "c4", ad_squad_id: "s1" },
-  ];
-  const creatives = [
-    { id: "c1", web_view_properties: { url: "https://shop.example/a?utm_source=snap" } },
-    { id: "c2", web_view_properties: { url: "https://shop.example/gone" } },
-    { id: "c3", web_view_properties: { url: "https://shop.example/paused" } },
-    { id: "c4", type: "COMPOSITE" },
-  ];
-  const client = { listPaged: async (path) => ({ items: path.endsWith("/ads") ? ads : creatives, complete: true }) };
+  ], s2: [{ id: "x", name: "never read", status: "ACTIVE", creative_id: "c3", ad_squad_id: "s2" }], s9: [{ id: "y", name: "never read either", status: "ACTIVE", creative_id: "c3", ad_squad_id: "s9" }] };
+  const creatives = {
+    c1: { id: "c1", web_view_properties: { url: "https://shop.example/a?utm_source=snap" } },
+    c2: { id: "c2", web_view_properties: { url: "https://shop.example/gone" } },
+    c3: { id: "c3", web_view_properties: { url: "https://shop.example/paused" } },
+    c4: { id: "c4", type: "COMPOSITE" },
+  };
+  const reads = [];
+  const client = {
+    listPaged: async () => ({ items: campaigns, complete: true }),
+    listChildren: async (parent, id, child) => (reads.push(`${parent}:${id}`), child === "adsquad" ? squads[id] : ads[id]),
+    getEntity: async (_e, id) => (reads.push(`creative:${id}`), creatives[id]),
+  };
   const seen = [];
   const check = async (url) => (seen.push(url), url.endsWith("/gone") ? { url, verdict: "BROKEN", status: 404, detail: "Page not found (404)" } : { url, verdict: "OK", status: 200 });
   const r = await landingPageReport(client, { adAccountId: "acc", requiredParams: ["utm_source"], check });
   assert.deepEqual(seen.sort(), ["https://shop.example/a?utm_source=snap", "https://shop.example/gone"], "paused ads and Story ads are not checked, a shared link once");
-  assert.deepEqual([r.active_ads, r.ads_without_a_web_link, r.links_checked, r.all_links_ok], [4, 1, 2, false]);
+  assert.deepEqual([r.active_campaigns, r.active_squads, r.active_ads, r.ads_without_a_web_link, r.links_checked, r.all_links_ok], [1, 1, 4, 1, 2, false]);
+  assert.ok(!reads.some((x) => x === "campaign:k2" || x === "adsquad:s2" || x === "creative:c3"), "paused campaigns, paused squads and the creatives only they use are never read");
   const gone = r.problems.find((p) => p.url.endsWith("/gone"));
   assert.deepEqual([gone.verdict, gone.missing_params, gone.ads.map((x) => x.ad_id)], ["BROKEN", ["utm_source"], ["a2"]]);
   assert.equal(r.problems.length, 1, "the working link that has its parameter is not a problem");
   assert.match(r.not_checked, /out of stock/);
   const limited = await landingPageReport(client, { adAccountId: "acc", maxUrls: 1, check });
   assert.equal(limited.links_not_checked, 1);
+});
+
+test("landing page report: a time limit stops the work and says what was not covered", async () => {
+  let t = 0;
+  const now = () => (t += 30_000);
+  const client = {
+    listPaged: async () => ({ items: [{ id: "k1", name: "C", status: "ACTIVE" }], complete: true }),
+    listChildren: async (_p, _id, child) => (child === "adsquad" ? [{ id: "s1", status: "ACTIVE" }] : [{ id: "a1", name: "A", status: "ACTIVE", creative_id: "c1", ad_squad_id: "s1" }]),
+    getEntity: async () => ({ id: "c1", web_view_properties: { url: "https://shop.example/a" } }),
+  };
+  const r = await landingPageReport(client, { adAccountId: "acc", check: async (url) => ({ url, verdict: "OK" }), timeBudgetMs: 40_000, now });
+  assert.equal(r.partial, true);
+  assert.match(r.partial_reason, /Stopped after about 40 seconds/);
+  assert.equal(r.all_links_ok, false, "an incomplete check never claims everything is fine");
 });
 
 const day = (date, spend, purchases, value = purchases * 40) => ({ date, spend, purchases, purchase_value: value, roas: spend ? Math.round((value / spend) * 100) / 100 : null, cpa: purchases ? Math.round((spend / purchases) * 100) / 100 : null });

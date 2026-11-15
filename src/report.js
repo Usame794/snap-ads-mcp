@@ -123,20 +123,89 @@ export async function breakdownReport(client, { entity, id, start_time, end_time
 export const DIMENSIONS = ["country", "gender", "age", "region", "dma", "make"];
 const ENTITY_BASE = { adaccount: "adaccounts", campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
 
+// ---------- Account-level numbers ----------
+// Snap's account-level stats endpoint only accepts the `spend` field when no breakdown is asked for ("Only field 'spend' should be
+// used when querying AdAccount stats", found on a live account). Account totals are therefore built from the per-campaign
+// breakdown, the query the weekly report already uses. Time series per hour or day are merged from the same breakdown; if Snap
+// does not answer that, from the ACTIVE campaigns' own series. The result is checked against Snap's own spend total.
+const NUMERIC = ["impressions", "spend", "swipes", "conversion_purchases", "conversion_purchases_value", "conversion_view_content", "conversion_add_cart", "conversion_start_checkout"];
+const addStats = (into, s = {}) => {
+  for (const k of NUMERIC) if (s[k] != null) into[k] = (into[k] ?? 0) + Number(s[k]);
+  return into;
+};
+
+export async function accountTotals(client, adAccountId, { start_time, end_time, fields = FIELDS.join(",") }) {
+  checkWindow(start_time, end_time);
+  const rows = await collectBreakdown(client, `/adaccounts/${adAccountId}/stats`, { granularity: "TOTAL", breakdown: "campaign", start_time, end_time, fields, omit_empty: true, limit: 200 }, "campaign");
+  const stats = {};
+  for (const r of rows) addStats(stats, r.stats);
+  return { stats, campaigns: rows.length, incomplete: Boolean(rows.incomplete) };
+}
+
+function mergeSeries(into, timeseries = []) {
+  for (const t of timeseries) addStats((into[t.start_time] ??= { start_time: t.start_time, end_time: t.end_time, stats: {} }).stats, t.stats);
+}
+const sortedSeries = (m) => Object.values(m).sort((a, b) => Date.parse(a.start_time) - Date.parse(b.start_time));
+
+export async function accountSeries(client, adAccountId, { granularity, start_time, end_time, fields = FIELDS.filter((f) => f !== "frequency").join(",") }) {
+  checkWindow(start_time, end_time);
+  const merged = {};
+  let source = "campaign breakdown";
+  try {
+    let cursor;
+    for (let page = 0; page < 40; page++) {
+      const data = await client.request("GET", `/adaccounts/${adAccountId}/stats`, { query: { granularity, breakdown: "campaign", start_time, end_time, fields, omit_empty: true, limit: 200, cursor } });
+      for (const ts of data.timeseries_stats ?? []) mergeSeries(merged, ts.timeseries_stat?.timeseries);
+      const next = data.paging?.next_link;
+      const nextCursor = next ? new URL(next).searchParams.get("cursor") : null;
+      if (!nextCursor || nextCursor === cursor) break;
+      cursor = nextCursor;
+    }
+  } catch (e) {
+    if (!/\(400\)|Unsupported/i.test(String(e.message))) throw e;
+    for (const k of Object.keys(merged)) delete merged[k];
+  }
+  // The check: the series must add up to the spend Snap reports for the account over the same window.
+  const accountSpend = await client.request("GET", `/adaccounts/${adAccountId}/stats`, { query: { granularity: "TOTAL", start_time, end_time, fields: "spend" } })
+    .then((d) => Number(d.total_stats?.[0]?.total_stat?.stats?.spend ?? 0))
+    .catch(() => null);
+  const seriesSpend = () => Object.values(merged).reduce((n, t) => n + (t.stats.spend ?? 0), 0);
+  if (accountSpend > 0 && seriesSpend() < accountSpend * 0.95) {
+    // Not the whole account (or an unexpected answer): rebuild from the ACTIVE campaigns' own series.
+    for (const k of Object.keys(merged)) delete merged[k];
+    source = "active campaigns only";
+    const campaigns = (await client.listPaged(`/adaccounts/${adAccountId}/campaigns`, "campaign")).items.filter((c) => c.status === "ACTIVE");
+    for (const c of campaigns) {
+      const d = await client.request("GET", `/campaigns/${c.id}/stats`, { query: { granularity, start_time, end_time, fields, omit_empty: true } });
+      mergeSeries(merged, d.timeseries_stats?.[0]?.timeseries_stat?.timeseries);
+    }
+  }
+  const covered = accountSpend > 0 ? Math.min(1, seriesSpend() / accountSpend) : 1;
+  return { series: sortedSeries(merged), source, coverage_pct: Math.round(covered * 100), ...(covered < 0.95 ? { warning: `These numbers cover about ${Math.round(covered * 100)}% of the account's spend (${source}); the rest could not be broken down.` } : {}) };
+}
+
 // One row per day (synchronous limit: 31 days).
 export async function dailyReport(client, { entity, id, start_time, end_time, swipe_up_attribution_window, view_attribution_window }) {
-  if (!ENTITY_BASE[entity]) throw new Error("entity must be campaign, adsquad or ad");
+  if (!ENTITY_BASE[entity]) throw new Error("entity must be adaccount, campaign, adsquad or ad");
   checkWindow(start_time, end_time);
   const days = (new Date(end_time) - new Date(start_time)) / 86_400_000;
   if (days > 31) throw new Error("Daily reports are limited to 31 days per request");
   const attribution = attributionQuery({ swipe_up_attribution_window, view_attribution_window });
-  const data = await client.request("GET", `/${ENTITY_BASE[entity]}/${id}/stats`, {
-    query: { granularity: "DAY", start_time, end_time, fields: FIELDS.join(","), omit_empty: true, ...attribution },
-  });
-  const series = data.timeseries_stats?.[0]?.timeseries_stat?.timeseries ?? [];
+  let series;
+  let accountNote = {};
+  if (entity === "adaccount") {
+    const acc = await accountSeries(client, id, { granularity: "DAY", start_time, end_time });
+    series = acc.series;
+    accountNote = { source: acc.source, coverage_pct: acc.coverage_pct, ...(acc.warning ? { warning: acc.warning } : {}) };
+  } else {
+    const data = await client.request("GET", `/${ENTITY_BASE[entity]}/${id}/stats`, {
+      query: { granularity: "DAY", start_time, end_time, fields: FIELDS.join(","), omit_empty: true, ...attribution },
+    });
+    series = data.timeseries_stats?.[0]?.timeseries_stat?.timeseries ?? [];
+  }
   // The date is the local day in the requested offset, whether Snap answers in that offset or in UTC.
   const rows = series.map((r) => ({ date: localDate(r.start_time, start_time), ...summarizeRow(null, null, r.stats) })).map(({ id: _i, name: _n, ...rest }) => rest);
-  return { window: { start_time, end_time }, days: rows.length, ...totalsOf(series.map((r) => r.stats)), basis: basisOf(attribution), rows };
+  return { window: { start_time, end_time }, days: rows.length, ...totalsOf(series.map((r) => r.stats)), basis: basisOf(attribution), ...accountNote, rows };
 }
 
 // Totals split by country, gender, age, region, dma or make.

@@ -1,6 +1,7 @@
 // Account hygiene, all read-only: billing, unused media, audience health, the conversion funnel, and catalog feed status.
 // Nothing here changes the ad account.
 import { localClock } from "./insights.js";
+import { accountTotals } from "./report.js";
 import { shiftIso } from "./fatigue.js";
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -177,8 +178,13 @@ export async function funnelReport(client, { adAccountId, entity = "adaccount", 
   if (!Number.isInteger(days) || days < 1 || days > 31) throw new Error("days must be a whole number from 1 to 31");
   const end = localClock(now, offset).todayStart;
   const start = shiftIso(end, -days * DAY);
-  const data = await client.request("GET", `/${base}/${entity === "adaccount" ? adAccountId : id}/stats`, { query: { granularity: "TOTAL", start_time: start, end_time: end, fields: FUNNEL.map(([, f]) => f).join(","), omit_empty: true } });
-  const stats = data.total_stats?.[0]?.total_stat?.stats ?? {};
+  const fields = FUNNEL.map(([, f]) => f).join(",");
+  let stats;
+  if (entity === "adaccount") stats = (await accountTotals(client, adAccountId, { start_time: start, end_time: end, fields })).stats;
+  else {
+    const data = await client.request("GET", `/${base}/${id}/stats`, { query: { granularity: "TOTAL", start_time: start, end_time: end, fields, omit_empty: true } });
+    stats = data.total_stats?.[0]?.total_stat?.stats ?? {};
+  }
   return {
     window: { start_time: start, end_time: end, days },
     ...buildFunnel(stats),
@@ -187,6 +193,16 @@ export async function funnelReport(client, { adAccountId, entity = "adaccount", 
 }
 
 // ---------- Catalog feed status ----------
+
+// How many days apart uploads are expected, from the feed's schedule (unknown: null).
+export function scheduleDays(schedule) {
+  if (!schedule) return null;
+  const n = Number(schedule.interval_count) || 1;
+  const unit = String(schedule.interval_type ?? "").toUpperCase();
+  return unit === "HOURLY" ? n / 24 : unit === "DAILY" ? n : unit === "WEEKLY" ? n * 7 : unit === "MONTHLY" ? n * 30 : null;
+}
+
+export const uploadErrorCount = (u) => Object.entries(u?.summary?.issues_summary ?? {}).filter(([k]) => /error/i.test(k)).reduce((n, [, counts]) => n + Object.values(counts ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0);
 
 export function judgeUpload(u) {
   const issues = [];
@@ -215,7 +231,7 @@ export async function feedStatus(client, { organizationId, now = Date.now() }) {
       const lastAge = last ? daysSince(last.updated_at ?? last.created_at, now) : null;
       const problems = [];
       if (!last) problems.push("No upload has completed yet.");
-      else if (lastAge > 2) problems.push(`The last completed upload was ${lastAge} days ago.`);
+      else if (lastAge > Math.max(2, 2 * (scheduleDays(feed.schedule) ?? 0))) problems.push(`The last completed upload was ${lastAge} days ago.`);
       if (latest && latest.status && !["COMPLETE", "INITIALIZED", "IN_PROGRESS"].includes(latest.status)) problems.push(`The latest upload is ${latest.status}.`);
       entry.feeds.push({
         feed_id: feed.id,
@@ -225,6 +241,7 @@ export async function feedStatus(client, { organizationId, now = Date.now() }) {
         last_completed_upload: last ? { at: last.updated_at ?? last.created_at, total_items: last.summary?.total_items ?? null, items_modified: last.summary?.items_modified ?? null, days_ago: lastAge } : null,
         latest_upload_status: latest?.status ?? null,
         upload_issues: latest ? judgeUpload(latest).slice(0, 10) : [],
+        upload_errors: latest ? uploadErrorCount(latest) : 0,
         problems,
       });
     }
@@ -232,7 +249,7 @@ export async function feedStatus(client, { organizationId, now = Date.now() }) {
   }
   return {
     catalogs: out.length,
-    feeds_with_problems: out.flatMap((c) => c.feeds).filter((f) => f.problems.length || f.upload_issues.length).length,
+    feeds_with_problems: out.flatMap((c) => c.feeds).filter((f) => f.problems.length || f.upload_errors > 0).length,
     catalogs_detail: out,
     note: "The feed's own URL and password are never shown. Recommendations (such as missing app links) are not counted as problems.",
   };
