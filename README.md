@@ -83,6 +83,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_MAX_ADDED_DAILY_BUDGET_24H` | 2 x the line above | Most daily budget this server may add to the account in any 24 hours, all tools together: budgets it starts plus budget increases |
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
+| `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
 | `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `setup, read, reports, checks, changes, create` (comma-separated). Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
 | `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
