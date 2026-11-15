@@ -13,12 +13,28 @@ const count = (a) => (Array.isArray(a) ? `${a.length} item${a.length === 1 ? "" 
 
 // For `verify --details`: the specifics behind a summary line. Links are shown without their query string (it can carry
 // tracking ids); everything goes through tidy() before it is printed.
-const where = (u) => { try { const x = new URL(u); return `${x.hostname}${x.pathname}`; } catch { return String(u).split("?")[0]; } };
+const where = (u) => {
+  try {
+    const x = new URL(u);
+    let path = x.pathname;
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // keep the encoded form
+    }
+    return `${x.hostname}${path.length > 70 ? `${path.slice(0, 70)}...` : path}`;
+  } catch {
+    return String(u).split("?")[0];
+  }
+};
 export const DETAILS = {
-  snap_check_landing_pages: (d) => (d.problems ?? []).slice(0, 10).map((p) => `${p.verdict}${p.status ? ` ${p.status}` : ""} ${where(p.url)}: ${p.detail ?? ""}${p.missing_params ? ` (missing ${p.missing_params.join(", ")})` : ""}${p.lands_on_other_site ? ` (ends on ${p.lands_on_other_site})` : ""} [${p.ads?.length ?? 0} ad(s), e.g. ${p.ads?.[0]?.ad ?? "?"}]`),
+  snap_check_landing_pages: (d) => [...(d.problems ?? []).slice(0, 10), ...(d.could_not_check ?? []).slice(0, 5).map((p) => ({ ...p, verdict: "BLOCKED", detail: "the website answered with a block (it probably refuses automatic checks); open it yourself" }))].map((p) => `${p.verdict}${p.status ? ` ${p.status}` : ""} ${where(p.url)}: ${p.detail ?? ""}${p.missing_params ? ` (missing ${p.missing_params.join(", ")})` : ""}${p.lands_on_other_site ? ` (ends on ${p.lands_on_other_site})` : ""} [${p.ads?.length ?? 0} ad(s), e.g. ${p.ads?.[0]?.ad ?? "?"}]`),
   snap_pixel_health: (d) => (d.top_priority_issues ?? []).slice(0, 10).map((i) => (typeof i === "string" ? i : JSON.stringify(i))),
   snap_catalog_feed_status: (d) => (d.catalogs_detail ?? []).flatMap((c) => c.feeds.filter((f) => f.problems.length || f.upload_errors).map((f) => `${c.catalog} / ${f.name}: ${[...f.problems, ...(f.upload_issues ?? [])].slice(0, 4).join("; ")}`)).slice(0, 10),
-  snap_audience_health: (d) => (d.problems ?? []).slice(0, 15).map((p) => `${p.name} (${p.source_type}, ${p.size} people): ${p.flags.map((f) => f.code).join(", ")}`),
+  snap_audience_health: (d) => [
+    ...(d.important_used_by_active_squads ?? []).slice(0, 10).map((p) => `USED NOW by ${p.used_by_active_squads} active ad squad(s): ${p.name} (${p.source_type}, ${p.size} people): ${p.flags.map((f) => f.code).join(", ")}`),
+    ...Object.entries(d.by_flag ?? {}).map(([k, n]) => `${k}: ${n} audience(s)`),
+  ],
   snap_review_issues: (d) => (d.items ?? []).slice(0, 10).map((i) => `${i.name}: ${String(i.reasons?.[0] ?? i.review_status ?? "").slice(0, 120)}`),
   snap_health_check: (d) => Object.entries(d.issue_counts ?? {}).map(([k, n]) => `${k}: ${n} ad squad(s)`),
 };
@@ -54,7 +70,7 @@ export function checksFor({ start, end, hasPixel, hasCountry }) {
 }
 
 // Printed output never includes ids or tokens: ids are shortened, long secret-looking strings are hidden.
-export const tidy = (s) => String(s).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (m) => `${m.slice(0, 8)}…`).replace(/[A-Za-z0-9._-]{40,}/g, "[hidden]").replace(/\s+/g, " ").slice(0, 220);
+export const tidy = (s) => String(s).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (m) => `${m.slice(0, 8)}…`).replace(/[A-Za-z0-9._-]{40,}/g, (m) => (/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$/.test(m) ? m : "[hidden]")).replace(/\s+/g, " ").slice(0, 220);
 
 export async function runVerify({ client, env = process.env, now = new Date(), log = console.log, details = false }) {
   // Everything below runs with writes switched off, whatever the settings say.
@@ -81,7 +97,8 @@ export async function runVerify({ client, env = process.env, now = new Date(), l
         const r = await mcp.callTool({ name: c.tool, arguments: c.args }, undefined, { timeout: 5 * 60_000 });
         const text = r.content?.[0]?.text ?? "";
         // Snap refusing the normal login for the Conversions API test tools is a missing setting, not a fault.
-        if (r.isError && c.tool.startsWith("snap_capi_") && /refused the token for the Conversions API/.test(text) && !settings.SNAP_CAPI_TOKEN) row = { tool: c.tool, status: "SKIP", detail: "needs SNAP_CAPI_TOKEN: a Conversions API token from Ads Manager (Events Manager > Conversions API > Generate token). Optional." };
+        if (r.isError && c.tool === "snap_competitor_ads" && /429|too many requests/i.test(text)) row = { tool: c.tool, status: "SKIP", detail: "Snap's public Ads Gallery is rate-limited right now; try again in a few minutes" };
+        else if (r.isError && c.tool.startsWith("snap_capi_") && /refused the token for the Conversions API/.test(text) && !settings.SNAP_CAPI_TOKEN) row = { tool: c.tool, status: "SKIP", detail: "needs SNAP_CAPI_TOKEN: a Conversions API token from Ads Manager (Events Manager > Conversions API > Generate token). Optional." };
         else if (r.isError) row = { tool: c.tool, status: "FAIL", detail: tidy(text) };
         else {
           let data = null;

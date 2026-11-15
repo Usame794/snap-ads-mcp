@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `snap_check_landing_pages`: a website that answers 401, 403 or 429 to the check (bot protection; found on a live shop) is listed apart as "could not check" and never counted as a broken link.
+- `snap_audience_health`: audiences with nobody in them are flagged EMPTY (not TINY), counted by flag, and problems on audiences that an ACTIVE ad squad uses right now (for example a stale buyer list used for exclusion) are listed first.
+- `verify`: a rate-limited public Ads Gallery is a skip, long upper-case error codes stay readable, percent-encoded link paths are decoded for display.
 - `verify --details` lists the specifics behind each problem (broken links without their query strings, pixel issues, feed errors, audience problems, rejected ads' reasons, ad squad issue counts).
 
 ## 0.9.1 (2026-11-15)

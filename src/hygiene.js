@@ -125,15 +125,22 @@ export async function audienceHealth(client, { adAccountId, now = Date.now(), st
     const age = daysSince(s.updated_at ?? s.created_at, now);
     const flags = [];
     if (status && status !== "READY") flags.push({ code: "NOT_TARGETABLE", detail: `Status ${status}: it cannot be used in targeting yet.` });
-    if (size < minSize) flags.push({ code: "TINY", detail: `About ${size} people: too small to deliver reliably.` });
+    if (size === 0) flags.push({ code: "EMPTY", detail: "No people in it (an old, expired or never-filled audience)." });
+    else if (size < minSize) flags.push({ code: "TINY", detail: `About ${size} people: too small to deliver reliably.` });
     if (s.source_type === "FIRST_PARTY" && age != null && age > staleDays) flags.push({ code: "STALE", detail: `A customer list not updated for ${age} days. Old lists miss recent buyers.` });
     const uses = usedBy.get(s.id) ?? 0;
     return { id: s.id, name: s.name, source_type: s.source_type, status, size, age_days: age, used_by_active_squads: uses, flags, ...(uses === 0 ? { unused: true } : {}) };
   });
   const problems = rows.filter((r) => r.flags.length);
+  const byFlag = {};
+  for (const r of problems) for (const f of r.flags) byFlag[f.code] = (byFlag[f.code] ?? 0) + 1;
+  // What matters most: a problem on an audience an ACTIVE ad squad uses right now (for example a stale buyer list used to exclude buyers).
+  const important = problems.filter((r) => r.used_by_active_squads > 0);
   return {
     audiences: rows.length,
     with_problems: problems.length,
+    by_flag: byFlag,
+    important_used_by_active_squads: important.slice(0, 20),
     used_by_active_squads: rows.filter((r) => r.used_by_active_squads > 0).length,
     unused_audiences: rows.filter((r) => r.unused).length,
     active_squads_read: squadsRead,

@@ -100,3 +100,19 @@ test("feed status: last completed upload, stale feeds, failed uploads, issues; n
   assert.ok(!JSON.stringify(r).includes("SECRET-PASSWORD") && !JSON.stringify(r).includes("ftp://"), "the feed address and password are never shown");
   assert.deepEqual(judgeUpload({ status: "COMPLETE", summary: { issues_summary: { recommendations: { X: 5 } } } }), []);
 });
+
+test("audience health: empty audiences are named as such, counted by flag, and the ones in use now come first", async () => {
+  const segs = [
+    { id: "a", name: "Buyers", source_type: "FIRST_PARTY", targetable_status: "READY", approximate_number_users: 129000, updated_at: "2026-01-01T00:00:00Z" },
+    { id: "b", name: "Old engagement", source_type: "ENGAGEMENT", targetable_status: "READY", approximate_number_users: 0, updated_at: "2026-11-01T00:00:00Z" },
+    { id: "c", name: "Empty but used", source_type: "PIXEL", targetable_status: "READY", approximate_number_users: 0, updated_at: "2026-11-01T00:00:00Z" },
+  ];
+  const client = {
+    listPaged: async (path) => (path.endsWith("segments") ? { complete: true, items: segs } : { complete: true, items: [{ id: "c1", status: "ACTIVE" }] }),
+    listChildren: async () => [{ status: "ACTIVE", targeting: { segments: [{ segment_id: ["a", "c"], operation: "EXCLUDE" }] } }],
+  };
+  const r = await audienceHealth(client, { adAccountId: "acc", now: NOW });
+  assert.deepEqual(r.by_flag, { STALE: 1, EMPTY: 2 });
+  assert.deepEqual(r.important_used_by_active_squads.map((p) => p.name), ["Buyers", "Empty but used"], "a stale buyer list that an active ad squad uses is the first thing to look at");
+  assert.ok(!r.problems.some((p) => p.flags.some((f) => f.code === "TINY")), "zero is EMPTY, not TINY");
+});

@@ -87,6 +87,20 @@ test("landing page report: only active ads of active squads, each distinct link 
   assert.equal(limited.links_not_checked, 1);
 });
 
+test("landing page report: a site that answers 403 to the check is listed apart and never called broken", async () => {
+  const client = {
+    listPaged: async () => ({ items: [{ id: "k1", name: "C", status: "ACTIVE" }], complete: true }),
+    listChildren: async (_p, _id, child) => (child === "adsquad" ? [{ id: "s1", status: "ACTIVE" }] : [{ id: "a1", name: "A", status: "ACTIVE", creative_id: "c1", ad_squad_id: "s1" }, { id: "a2", name: "B", status: "ACTIVE", creative_id: "c2", ad_squad_id: "s1" }]),
+    getEntity: async (_e, id) => ({ id, web_view_properties: { url: `https://shop.example/${id}` } }),
+  };
+  const check = async (url) => (url.endsWith("c1") ? { url, verdict: "UNCHECKED", status: 403, detail: "The site answered 403" } : { url, verdict: "OK", status: 200 });
+  const r = await landingPageReport(client, { adAccountId: "acc", check });
+  assert.equal(r.problems.length, 0, "a 403 is not a broken link");
+  assert.equal(r.could_not_check.length, 1);
+  assert.match(r.could_not_check_note, /blocks automatic checks/);
+  assert.equal(r.all_links_ok, false, "but it does not claim everything was verified");
+});
+
 test("landing page report: a time limit stops the work and says what was not covered", async () => {
   let t = 0;
   const now = () => (t += 30_000);
