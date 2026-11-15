@@ -122,10 +122,10 @@ test("playbooks are listed by the server and never tell the assistant to apply c
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(a), client.connect(b)]);
   const { prompts } = await client.listPrompts();
-  assert.deepEqual(prompts.map((p) => p.name).sort(), ["launch_checklist", "replace_tired_ads", "weekly_review"]);
+  assert.deepEqual(prompts.map((p) => p.name).sort(), ["budget_review", "competitor_scan", "fix_rejected_ads", "launch_checklist", "replace_tired_ads", "tracking_check", "weekly_review"]);
   const tools = new Set((await client.listTools()).tools.map((t) => t.name));
   for (const [name, p] of Object.entries(PROMPTS)) {
-    const res = await client.getPrompt({ name, arguments: name === "weekly_review" ? {} : { name_or_id: "X", campaign: "X" } });
+    const res = await client.getPrompt({ name, arguments: Object.fromEntries(Object.keys(p.argsSchema ?? {}).map((k) => [k, "Xx"])) });
     const text = res.messages[0].content.text;
     assert.match(text, /Do not call any tool with confirm=true/, `${name} keeps the approval rule`);
     for (const used of text.match(/snap_[a-z_]+/g)) assert.ok(tools.has(used), `${name} refers to a real tool: ${used}`);

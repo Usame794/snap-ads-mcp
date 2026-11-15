@@ -17,6 +17,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 - Data that comes back from the API (names, review reasons) is shown to your AI assistant. Treat it as untrusted input, and keep your client's approval prompt on for write tools.
 
 ## Ad formats
+- **Goals for link ads**: `snap_create_adsquad` takes `goal`: purchase, add to cart, page view or sign-up (need a pixel), or traffic (SWIPES), awareness (IMPRESSIONS) and video views (no pixel needed). App installs and lead generation are not built.
 - **Single Snap with a link** (WEB_VIEW): `snap_create_creative`, then `snap_create_ad`.
 - **Single Snap, no link** (image or video): `snap_create_creative` with `creative_type: "SNAP_AD"`.
 - **Story Ad**: create the Snaps first (any of the two above), then `snap_create_story_creative` with their ids in order. Add `preview` (a 3:5 PNG tile, at least 360x600 px, and a headline of up to 55 characters) to also show it in the Stories tab.
@@ -96,6 +97,10 @@ Existing items above a limit can still be read, lowered and paused, but not rais
 
 ## Playbooks
 Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only read and preview; nothing is applied without your yes.
+- **Budget review**: checks tracking first, then suggests at most 3 budget moves with previews.
+- **Tracking check**: pixel, yesterday's purchases, Conversions API test events, Snap vs store revenue.
+- **Competitor scan**: a competitor's ads from Snap's public Ads Gallery (Europe), and 3 ideas.
+- **Fix rejected ads**: why Snap rejected each ad, and a proposed fix as a preview.
 - **Weekly review**: last 7 days vs the 7 before, problems, tired ads, pacing, and up to 5 actions.
 - **Launch checklist**: before turning on a paused campaign or ad squad: audience size, pixel, budget, creatives, review status, preview links. PASS / WARN / FAIL per item.
 - **Replace tired ads**: finds wearing-out ads in a campaign and drafts paused replacements from new media.
@@ -115,6 +120,11 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_audience_insights` | read: who is in an audience (age, gender, languages, interests, devices) compared with everyone in the same countries, with an index |
 | `snap_competitor_ads` | read: a company's ads from Snap's public Ads Gallery (no login, nothing about your account sent; Europe only) |
 | `snap_capi_status`, `snap_capi_test_event` | Conversions API TEST events only: read the last test events and their errors; send one test event (previewed, email hashed). No tool sends real conversion events. |
+| `snap_set_frequency_cap` | write (preview + approval): at most N impressions per person per N hours/days, or clear it |
+| `snap_set_ad_schedule` | write (preview + approval): which hours of which days ads run; Snap allows it only on lifetime-budget ad squads |
+| `snap_report_hourly` | read: spend, purchases and ROAS by local hour of the day (last 1-7 days), best and worst hours |
+| `snap_creative_compare` | read: the ads of a campaign or ad squad ranked against the median ROAS (WINNER / LAGGING), grouped by call to action |
+| `snap_budget_advice` | read: suggested daily-budget moves (lower the weak, raise the proven, funded by what is freed, inside your limits), each naming the tool that applies it |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |

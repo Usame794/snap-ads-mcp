@@ -267,7 +267,7 @@ export function undoableEntries(file = LOG_FILE) {
 }
 
 // The only fields this server ever edits. An undo restores nothing else, whatever a log entry claims.
-const UNDOABLE_FIELDS = ["status", "daily_budget_micro", "bid_micro", "targeting", "start_time", "end_time", "name"];
+const UNDOABLE_FIELDS = ["status", "daily_budget_micro", "bid_micro", "targeting", "start_time", "end_time", "name", "cap_and_exclusion_config", "ad_scheduling_config"];
 
 export function planUndo(entry, current, { force = false, env = process.env, history } = {}) {
   const keys = Object.keys(entry.patch ?? {});

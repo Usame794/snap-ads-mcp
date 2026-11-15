@@ -141,6 +141,9 @@ export function buildTargeting({ countries, minAge, maxAge, gender, interests, o
   return targeting;
 }
 
+// Goals this builder supports, all for web (link) ads: sales-type goals need a pixel; reach, traffic and video-view goals do not.
+export const AD_SQUAD_GOALS = ["PIXEL_PURCHASE", "PIXEL_ADD_TO_CART", "PIXEL_PAGE_VIEW", "PIXEL_SIGNUP", "SWIPES", "IMPRESSIONS", "VIDEO_VIEWS", "VIDEO_VIEWS_15_SEC"];
+
 // A new ad squad from a few choices. Always PAUSED. Defaults suit web purchase squads.
 export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", productSetId, dpaMode, audienceDays, now = startIn(10), env = process.env }) {
   const policy = loadPolicy(env);
@@ -152,7 +155,10 @@ export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy =
   if (bidStrategy === "LOWEST_COST_WITH_MAX_BID" && !(bid > 0)) throw new Error("bid must be greater than 0 for a max-bid squad");
   if (bidStrategy === "LOWEST_COST_WITH_MAX_BID") checkBid(policy, { value: bid, what: "bid" });
   if (bidStrategy === "AUTO_BID" && bid != null) throw new Error("bid is not used with AUTO_BID; leave it out");
-  if (!pixelId) throw new Error("pixel_id is required (or set SNAP_PIXEL_ID)");
+  if (!AD_SQUAD_GOALS.includes(optimizationGoal)) throw new Error(`goal must be one of ${AD_SQUAD_GOALS.join(", ")}`);
+  const needsPixel = optimizationGoal.startsWith("PIXEL_");
+  if (needsPixel && !pixelId) throw new Error(`pixel_id is required for the goal ${optimizationGoal} (or set SNAP_PIXEL_ID)`);
+  if (productSetId && !needsPixel) throw new Error("A catalog ad squad needs a pixel goal such as PIXEL_PURCHASE");
   if (!["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"].includes(conversionWindow)) throw new Error("conversion_window must be SWIPE_7DAY or SWIPE_28DAY_VIEW_1DAY");
   const targeting = buildTargeting({ countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, productSetId, dpaMode, audienceDays });
   const squad = {
@@ -165,9 +171,9 @@ export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy =
     placement_v2: { config: "AUTOMATIC" },
     billing_event: "IMPRESSION",
     optimization_goal: optimizationGoal,
-    pixel_id: pixelId,
+    ...(pixelId ? { pixel_id: pixelId } : {}),
     ...(productSetId ? { product_properties: { product_set_id: productSetId } } : {}),
-    conversion_window: conversionWindow,
+    ...(needsPixel ? { conversion_window: conversionWindow } : {}),
     bid_strategy: bidStrategy,
     delivery_constraint: "DAILY_BUDGET",
     daily_budget_micro: Math.round(dailyBudget * 1_000_000),
