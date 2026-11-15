@@ -14,6 +14,7 @@ import { executeDelete, planDelete } from "./delete.js";
 import { breakdownReport, dailyReport, dimensionReport, DIMENSIONS, SWIPE_WINDOWS, VIEW_WINDOWS } from "./report.js";
 import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.js";
 import { fatigueReport } from "./fatigue.js";
+import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { adPreview, audienceSizeForSquad, audienceSizeForTargeting, pacingReport } from "./insights.js";
 import { registerPrompts } from "./prompts.js";
 import { buildLookalike, buildPixelAudience, PIXEL_EVENTS, listCatalogs, listPixels, listProductSets, listSegments, rawGet, targetingOptions, TARGETING_KINDS } from "./readers.js";
@@ -464,6 +465,72 @@ export function registerTools(server, client, env = process.env) {
 
   read("snap_list_product_sets", { description: "List product sets of a catalog (read-only).", shape: { catalog_id: id() } }, ({ catalog_id }) => listProductSets(client, catalog_id));
 
+  // A catalog belongs to an organization, not to an ad account. Only catalogs of the configured account's organization are used.
+  const accountOrg = async () => {
+    const org = (await client.request("GET", `/adaccounts/${account()}`)).adaccounts?.[0]?.adaccount?.organization_id;
+    if (!org) throw new Error("Cannot tell which organization the ad account belongs to; refusing to use a catalog.");
+    return org;
+  };
+  const ownCatalog = async (catalogId) => {
+    const catalog = await client.getEntity("catalog", catalogId);
+    if (catalog.organization_id !== (await accountOrg())) throw new Error(`Catalog ${catalogId} belongs to another organization, not the configured ad account's; refusing to use it.`);
+    return catalog;
+  };
+
+  read(
+    "snap_list_dynamic_templates",
+    { description: "List the ad account's dynamic templates (how products are laid out in catalog ads), read-only. Use an id as dynamic_template_id in snap_create_creative.", shape: { limit: z.number().int().min(1).max(200).default(50) } },
+    async ({ limit }) => {
+      const { items, complete } = await client.listPaged(`/adaccounts/${account()}/dynamic_templates`, "dynamic_template");
+      const rows = items.map((t) => ({ id: t.id, name: t.name, layout: t.layout, text_fields: t.text_fields }));
+      return new ListResult(rows.slice(0, limit), [...(complete ? [] : ["The list is INCOMPLETE; more templates exist that are not included."]), ...(rows.length > limit ? [`${rows.length} templates; showing the first ${limit}.`] : [])]);
+    },
+  );
+
+  write(
+    "snap_create_product_set",
+    {
+      description:
+        "Create a product set in a catalog: a group of products chosen by a filter, for catalog ads. The filter uses Snap's rules, e.g. {\"AVAILABILITY\": {\"EQ\": \"IN_STOCK\"}} or {\"AND\": [{\"PRICE_AMOUNT\": {\"GT\": \"15.50\"}}, {\"BRAND\": {\"IS_ANY\": [\"a\", \"b\"]}}]}. Each attribute once, one AND/OR, up to 10 rules; ID lists up to 1000, other lists up to 15. At most 50 sets per catalog. Delivers nothing by itself. Previews unless confirm=true.",
+      shape: { catalog_id: id(), name: z.string().min(3).max(255), filter: z.record(z.string(), z.unknown()).describe("Snap product set filter") },
+      repeatGuard: true,
+    },
+    async ({ catalog_id, name, filter }) => {
+      const set = buildProductSet({ name, filter });
+      const catalog = await ownCatalog(catalog_id);
+      const existing = await listProductSets(client, catalog_id);
+      if (existing.some((s) => s.name === set.name)) throw new Error(`The catalog already has a product set named "${set.name}". Choose another name.`);
+      if (existing.length >= 50) throw new Error("This catalog already has 50 product sets, Snap's maximum.");
+      return {
+        targetIds: [catalog_id],
+        state: { sets: existing.map((s) => s.id).sort() },
+        preview: { applied: false, dry_run: true, would_create: { in_catalog: catalog.name, name: set.name, rule: describeFilter(set.filter), filter: set.filter }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => {
+          const data = await client.request("POST", `/catalogs/${catalog_id}/product_sets`, { body: { product_sets: [set] } });
+          const [created] = SnapClient.unwrap(data, "product_set");
+          if (!created?.id) throw new Error("Snap did not return an id for the new product set");
+          return { applied: true, product_set_id: created.id, name: created.name };
+        },
+      };
+    },
+  );
+
+  write(
+    "snap_create_dynamic_template",
+    {
+      description: `Create a dynamic template: the layout and the (up to two) text fields shown with each product in catalog ads. Layout: ${TEMPLATE_LAYOUTS.join(", ")}. Text fields: ${TEMPLATE_TEXT_FIELDS.join(", ")}. Delivers nothing by itself. Previews unless confirm=true.`,
+      shape: { name: z.string().min(1).max(375), layout: z.enum(TEMPLATE_LAYOUTS).default("AUTOMATIC"), text_fields: z.array(z.enum(TEMPLATE_TEXT_FIELDS)).max(2).default(["title", "price"]), background_color: z.string().optional().describe("Hex colour such as #FFFFFF") },
+      repeatGuard: true,
+    },
+    async ({ name, layout, text_fields, background_color }) => {
+      const obj = buildDynamicTemplate({ adAccountId: account(), name, layout, textFields: text_fields, backgroundColor: background_color });
+      return {
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, layout: obj.layout, text_fields: obj.text_fields, background_color: obj.background_color ?? "default" }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, dynamic_template_id: (await client.createEntity("dynamic_template", obj)).id }),
+      };
+    },
+  );
+
   read(
     "snap_targeting_options",
     {
@@ -754,19 +821,39 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_create_creative",
     {
-      description: "Create a creative from a READY image or video: WEB_VIEW (default; swipe-up opens a web page) or SNAP_AD (the Snap only, no link and no call to action). Use the result in snap_create_ad, or as a part of a Story with snap_create_story_creative. Previews unless confirm=true.",
+      description: "Create a creative from a READY image or video: WEB_VIEW (default; swipe-up opens a web page) or SNAP_AD (the Snap only, no link and no call to action). DYNAMIC_PRODUCT is a catalog ad creative: no media; it needs dynamic_template_id and product_set_id, and the product pages come from the catalog. Use the result in snap_create_ad, or as a part of a Story with snap_create_story_creative. Previews unless confirm=true.",
       shape: {
-        media_id: id(),
+        media_id: id().optional().describe("Required except for DYNAMIC_PRODUCT"),
         name: z.string(),
         headline: z.string().describe("Max 34 characters"),
-        creative_type: z.enum(["WEB_VIEW", "SNAP_AD"]).default("WEB_VIEW"),
+        creative_type: z.enum(["WEB_VIEW", "SNAP_AD", "DYNAMIC_PRODUCT"]).default("WEB_VIEW"),
+        dynamic_template_id: id().optional().describe("DYNAMIC_PRODUCT only (see snap_list_dynamic_templates)"),
+        product_set_id: id().optional().describe("DYNAMIC_PRODUCT only: must be the product set of the ad squad that will run this creative"),
+        url_macro_parameters: z.string().max(500).optional().describe("DYNAMIC_PRODUCT only, e.g. utm_campaign=campaign.name&utm_content=ad.id"),
         url: z.string().optional().describe("https:// landing page (required for WEB_VIEW, not allowed for SNAP_AD)"),
         call_to_action: z.enum(WEB_VIEW_CTAS).default("SHOP_NOW").describe("WEB_VIEW only"),
         profile_id: id().optional(),
       },
       repeatGuard: true,
     },
-    async ({ media_id, name, headline, creative_type, url, call_to_action, profile_id }) => {
+    async ({ media_id, name, headline, creative_type, url, call_to_action, profile_id, dynamic_template_id, product_set_id, url_macro_parameters }) => {
+      if (creative_type === "DYNAMIC_PRODUCT") {
+        if (media_id || url) throw new Error("A DYNAMIC_PRODUCT creative has no media or url of its own: the products come from the catalog. Leave media_id and url out.");
+        const obj = buildDynamicCreative({ adAccountId: account(), profileId: brandProfile(profile_id), name, headline, callToAction: call_to_action, templateId: dynamic_template_id, productSetId: product_set_id, urlMacroParameters: url_macro_parameters });
+        const template = await client.getEntity("dynamic_template", dynamic_template_id);
+        if (template.ad_account_id && template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
+        return {
+          targetIds: [dynamic_template_id, product_set_id],
+          state: { template: template.id },
+          preview: { applied: false, dry_run: true, would_create: { type: "WEB_VIEW (dynamic)", name: obj.name, headline: obj.headline, cta: obj.call_to_action, template: template.name, product_set_id, url_macro_parameters: obj.url_macro_parameters }, note: "Nothing created. The ad squad that runs it must use the same product_set_id. Re-run with confirm=true." },
+          execute: async () => {
+            const created = await client.createEntity("creative", obj);
+            return { applied: true, creative_id: created.id, name: created.name };
+          },
+        };
+      }
+      if (!media_id) throw new Error("media_id is required (only DYNAMIC_PRODUCT creatives have none)");
+      if (dynamic_template_id || product_set_id || url_macro_parameters) throw new Error("dynamic_template_id, product_set_id and url_macro_parameters belong to DYNAMIC_PRODUCT creatives");
       if (creative_type === "SNAP_AD" && url) throw new Error("A SNAP_AD creative has no link; leave url out or use creative_type WEB_VIEW");
       const obj = creative_type === "SNAP_AD"
         ? buildSnapAdCreative({ adAccountId: account(), profileId: brandProfile(profile_id), mediaId: media_id, name, headline })
@@ -796,10 +883,19 @@ export function registerTools(server, client, env = process.env) {
       const squad = await client.getEntity("adsquad", adsquad_id);
       const creative = await client.getEntity("creative", creative_id);
       const obj = buildAd({ adSquadId: adsquad_id, creativeId: creative_id, name, type: adTypeFor(creative.type, ad_type) });
+      if (creative.render_type === "DYNAMIC") {
+        const squadSet = squadProductSet(squad);
+        const creativeSet = creativeProductSet(creative);
+        if (!squadSet) throw new Error("This creative is a catalog (dynamic) creative, but the ad squad has no product set. Create the ad squad with product_set_id.");
+        if (squadSet !== creativeSet) throw new Error(`The creative uses product set ${creativeSet} but the ad squad uses ${squadSet}. Snap requires them to match.`);
+        obj.render_type = "DYNAMIC";
+      } else if (squadProductSet(squad)) {
+        throw new Error("This ad squad is a catalog ad squad: it only takes catalog (DYNAMIC_PRODUCT) creatives.");
+      }
       return {
         targets: [{ entity: "adsquad", obj: squad }, { entity: "creative", obj: creative }],
         state: { squad, creative },
-        preview: { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, creative: creative.name, creative_type: creative.type, type: obj.type, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
+        preview: { applied: false, dry_run: true, would_create: { name: obj.name, in_adsquad: squad.name, squad_status: squad.status, creative: creative.name, creative_type: creative.type, type: obj.type, ...(obj.render_type ? { render_type: obj.render_type, product_set_id: squadProductSet(squad) } : {}), status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
         execute: async () => ({ applied: true, ad_id: (await client.createEntity("ad", obj)).id, status: "PAUSED" }),
       };
     },
@@ -999,16 +1095,18 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_create_campaign",
     {
-      description: "Create a new, empty campaign (always PAUSED, starting shortly after you enable it). Add ad squads with snap_copy_adsquad. Previews unless confirm=true.",
-      shape: { name: z.string().min(3), objective: z.enum(["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"]).default("SALES") },
+      description: "Create a new, empty campaign (always PAUSED, starting shortly after you enable it). Add ad squads with snap_create_adsquad or snap_copy_adsquad. Give catalog_id (objective SALES) for a catalog (Dynamic Product Ads) campaign. Previews unless confirm=true.",
+      shape: { name: z.string().min(3), objective: z.enum(["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"]).default("SALES"), catalog_id: id().optional().describe("Makes it a catalog campaign; the catalog must belong to the ad account's organization") },
       repeatGuard: true,
     },
-    async ({ name, objective }) => {
+    async ({ name, objective, catalog_id }) => {
       const adAccountId = account();
-      buildCampaign({ adAccountId, name, objective });
+      buildCampaign({ adAccountId, name, objective, catalogId: catalog_id });
+      const catalog = catalog_id ? await ownCatalog(catalog_id) : null;
       return {
-        preview: { applied: false, dry_run: true, would_create: { name: name.trim(), objective, status: "PAUSED" }, note: "Nothing created. Re-run with confirm=true." },
-        execute: async () => ({ applied: true, campaign_id: (await createCampaign({ client, campaign: buildCampaign({ adAccountId, name, objective }), logFile })).id, status: "PAUSED" }),
+        ...(catalog ? { targetIds: [catalog_id], state: { catalog: catalog.id } } : {}),
+        preview: { applied: false, dry_run: true, would_create: { name: name.trim(), objective, status: "PAUSED", ...(catalog ? { catalog: catalog.name } : {}) }, note: "Nothing created. Re-run with confirm=true." },
+        execute: async () => ({ applied: true, campaign_id: (await createCampaign({ client, campaign: buildCampaign({ adAccountId, name, objective, catalogId: catalog_id }), logFile })).id, status: "PAUSED" }),
       };
     },
   );
@@ -1051,14 +1149,24 @@ export function registerTools(server, client, env = process.env) {
         max_age: z.number().int().min(13).max(50).optional(),
         gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
         conversion_window: z.enum(["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"]).default("SWIPE_7DAY"),
+        product_set_id: id().optional().describe("Catalog ads: the product set this ad squad shows. The campaign must be a catalog campaign (snap_create_campaign with catalog_id) whose catalog holds this set."),
+        dpa_mode: z.enum(["retargeting", "prospecting"]).optional().describe("Catalog ads: retargeting = people who viewed or added to cart but did not buy; prospecting = people who have not interacted with these products. Needs product_set_id."),
+        audience_days: z.number().int().min(1).max(30).default(14).describe("Catalog ads: how many days of product activity count"),
       },
       repeatGuard: true,
     },
     async (a) => {
       const campaign = await client.getEntity("campaign", a.campaign_id);
-      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries ?? defaultCountries(), minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, env: policy });
+      if (a.product_set_id) {
+        const catalogId = campaign.product_properties?.catalog_id;
+        if (!catalogId) throw new Error("This campaign is not a catalog campaign. Create one with snap_create_campaign and catalog_id.");
+        await ownCatalog(catalogId);
+        if (!(await listProductSets(client, catalogId)).some((s) => s.id === a.product_set_id)) throw new Error(`Product set ${a.product_set_id} is not in this campaign's catalog.`);
+        if (a.dpa_mode === "retargeting" && !(a.pixel_id ?? cfg.pixel)) throw new Error("Retargeting needs a pixel: give pixel_id or set SNAP_PIXEL_ID.");
+      }
+      const build = () => buildAdSquad({ campaignId: a.campaign_id, name: a.name, dailyBudget: a.daily_budget, bid: a.bid, bidStrategy: a.bid_strategy, pixelId: a.pixel_id ?? cfg.pixel, countries: a.countries ?? defaultCountries(), minAge: a.min_age, maxAge: a.max_age, gender: a.gender, interests: a.interests, osType: a.os_type, excludeSegmentIds: a.exclude_segment_ids, includeSegmentIds: a.include_segment_ids, conversionWindow: a.conversion_window, productSetId: a.product_set_id, dpaMode: a.dpa_mode, audienceDays: a.audience_days, env: policy });
       const adsquad = build();
-      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries ?? defaultCountries(), excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, status: "PAUSED" };
+      const summary = { name: adsquad.name, in_campaign: campaign.name, daily_budget: a.daily_budget, bid_strategy: a.bid_strategy, max_bid: a.bid, countries: a.countries ?? defaultCountries(), excluded_segments: a.exclude_segment_ids?.length ?? 0, interests: a.interests?.length ?? 0, os_type: a.os_type, goal: adsquad.optimization_goal, conversion_window: adsquad.conversion_window, ...(a.product_set_id ? { catalog_ads: { product_set_id: a.product_set_id, mode: a.dpa_mode, product_activity_days: a.audience_days } } : {}), status: "PAUSED" };
       return {
         targets: [{ entity: "campaign", obj: campaign }],
         state: { campaign },

@@ -313,6 +313,8 @@ const WRITE_CALLS = (csv, img) => ({
   snap_create_campaign: { name: "Brand new" },
   snap_create_adsquad: { campaign_id: "c1", name: "Brand new squad", daily_budget: 10, bid: 1 },
   snap_create_ad: { creative_id: "cr1", adsquad_id: "s1", name: "Brand new ad" },
+  snap_create_product_set: { catalog_id: "cat1", name: "Red shoes", filter: { COLOR: { IS_ANY: ["red"] } } },
+  snap_create_dynamic_template: { name: "Compact" },
   snap_create_creative: { media_id: "m1", name: "Brand new creative", headline: "Hello", url: "https://example.com/" },
   snap_create_story_creative: { name: "Brand new story", headline: "Hello", creative_ids: ["cr1"], preview: { preview_media_id: "m1", preview_headline: "Tile" } },
   snap_create_collection_creative: { name: "Brand new collection", top_snap_media_id: "m1", headline: "Hello", fallback_url: "https://example.com/", products: [1, 2, 3, 4].map((i) => ({ name: `P${i}`, image_media_id: "sq1", url: `https://example.com/p${i}` })) },
@@ -339,7 +341,7 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   const { tools } = await listing.client.listTools();
   const writeTools = tools.filter((x) => x.annotations?.readOnlyHint === false && x.inputSchema.properties.confirm).map((x) => x.name).sort();
   assert.deepEqual(writeTools, Object.keys(calls).sort(), "the table above covers every mutating tool");
-  assert.equal(tools.length, 62);
+  assert.equal(tools.length, 65);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} rejects unknown arguments`);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", `${tool.name} is annotated`);

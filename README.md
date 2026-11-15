@@ -20,6 +20,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 - **Single Snap with a link** (WEB_VIEW): `snap_create_creative`, then `snap_create_ad`.
 - **Single Snap, no link** (image or video): `snap_create_creative` with `creative_type: "SNAP_AD"`.
 - **Story Ad**: create the Snaps first (any of the two above), then `snap_create_story_creative` with their ids in order. Add `preview` (a 3:5 PNG tile, at least 360x600 px, and a headline of up to 55 characters) to also show it in the Stories tab.
+- **Catalog ad (Dynamic Product Ads)**: `snap_create_campaign` with `catalog_id` (SALES objective), then `snap_create_product_set` (and `snap_create_dynamic_template` if you have none), then `snap_create_adsquad` with `product_set_id` and `dpa_mode` (retargeting: viewed or added to cart but did not buy; prospecting: has not interacted), then `snap_create_creative` with `creative_type: "DYNAMIC_PRODUCT"`, then `snap_create_ad`. The ad squad and the creative must use the same product set, which the tools check. The catalog and its product feed are set up in Ads Manager or Business Manager.
 - **Collection Ad**: upload a main image or video and one **square** image per product (1:1, at least 120x120 px; checked in the preview), then `snap_create_collection_creative` with 4-20 products, each with its own https page.
 
 In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_AD, STORY or COLLECTION) and the ad starts PAUSED. Creatives never deliver on their own. Find media already in the account with `snap_list_media`, or upload with `snap_upload_media` and wait until `snap_get_media` says READY.
@@ -106,6 +107,8 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_audience_size` | read: Snap's reach estimate for an ad squad or for targeting you are planning, with a verdict (very small / small / OK / very broad) |
 | `snap_spend_pacing` | read: today's spend per active ad squad vs its budget for this time of day, month-to-date spend, projected month and, with a monthly budget, over / under |
 | `snap_ad_preview` | read: a no-login preview link (90 days) and a Snapcode to scan on a phone (7 days) |
+| `snap_list_dynamic_templates` | read: the ad account's dynamic templates (product layouts for catalog ads) |
+| `snap_create_product_set`, `snap_create_dynamic_template` | write (preview + approval): a filtered group of catalog products; a product layout |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
 | `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |

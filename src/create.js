@@ -3,14 +3,17 @@ import { openSync, closeSync, readSync, readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { logChange } from "./changes.js";
 import { checkBid, checkDailyBudget, loadPolicy } from "./policy.js";
+import { productAudiences } from "./catalog-ads.js";
 
 const OBJECTIVES = ["SALES", "TRAFFIC", "AWARENESS", "ENGAGEMENT", "LEADS", "APP_PROMOTION"];
 const startIn = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
 
-export function buildCampaign({ adAccountId, name, objective = "SALES", now = startIn(10) }) {
+export function buildCampaign({ adAccountId, name, objective = "SALES", catalogId, now = startIn(10) }) {
   const n = String(name ?? "").trim();
   if (n.length < 3) throw new Error("name must be at least 3 characters");
   if (!OBJECTIVES.includes(objective)) throw new Error(`objective must be one of ${OBJECTIVES.join(", ")}`);
+  if (catalogId && objective !== "SALES") throw new Error("A catalog (Dynamic Product Ads) campaign must have the SALES objective");
+  if (catalogId && !/^[A-Za-z0-9_-]{1,64}$/.test(catalogId)) throw new Error("catalog_id must be an id");
   return {
     ad_account_id: adAccountId,
     name: n,
@@ -18,6 +21,7 @@ export function buildCampaign({ adAccountId, name, objective = "SALES", now = st
     start_time: now,
     buy_model: "AUCTION",
     objective_v2_properties: { objective_v2_type: objective },
+    ...(catalogId ? { product_properties: { catalog_id: catalogId } } : {}),
   };
 }
 
@@ -104,7 +108,7 @@ export async function uploadMedia({ client, adAccountId, filePath, name, logFile
 }
 
 // The targeting part of an ad squad. Shared by buildAdSquad and the audience-size check, so both apply the same rules.
-export function buildTargeting({ countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds }) {
+export function buildTargeting({ countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, productSetId, dpaMode, audienceDays }) {
   if (!Array.isArray(countries) || !countries.length) throw new Error("countries is required: give 2-letter codes such as [\"us\"], or set SNAP_DEFAULT_COUNTRY");
   const geos = countries.map((c) => String(c).trim().toLowerCase());
   if (!geos.length || geos.some((c) => !/^[a-z]{2}$/.test(c))) throw new Error("countries must be 2-letter codes");
@@ -124,6 +128,12 @@ export function buildTargeting({ countries, minAge, maxAge, gender, interests, o
     if (!["iOS", "ANDROID"].includes(osType)) throw new Error("os_type must be iOS or ANDROID");
     targeting.devices = [{ os_type: osType, operation: "INCLUDE" }];
   }
+  if (productSetId) {
+    if (!dpaMode) throw new Error("dpa_mode is required with a product set: retargeting or prospecting");
+    targeting.product_audiences = productAudiences({ mode: dpaMode, productSetId, days: audienceDays });
+  } else if (dpaMode) {
+    throw new Error("dpa_mode needs a product_set_id");
+  }
   const segments = [];
   if (includeSegmentIds?.length) segments.push({ segment_id: includeSegmentIds, operation: "INCLUDE" });
   if (excludeSegmentIds?.length) segments.push({ segment_id: excludeSegmentIds, operation: "EXCLUDE" });
@@ -132,7 +142,7 @@ export function buildTargeting({ countries, minAge, maxAge, gender, interests, o
 }
 
 // A new ad squad from a few choices. Always PAUSED. Defaults suit web purchase squads.
-export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", now = startIn(10), env = process.env }) {
+export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy = "LOWEST_COST_WITH_MAX_BID", pixelId, countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, conversionWindow = "SWIPE_7DAY", optimizationGoal = "PIXEL_PURCHASE", childAdType = "REMOTE_WEBPAGE", productSetId, dpaMode, audienceDays, now = startIn(10), env = process.env }) {
   const policy = loadPolicy(env);
   const n = String(name ?? "").trim();
   if (n.length < 3) throw new Error("name must be at least 3 characters");
@@ -144,7 +154,7 @@ export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy =
   if (bidStrategy === "AUTO_BID" && bid != null) throw new Error("bid is not used with AUTO_BID; leave it out");
   if (!pixelId) throw new Error("pixel_id is required (or set SNAP_PIXEL_ID)");
   if (!["SWIPE_7DAY", "SWIPE_28DAY_VIEW_1DAY"].includes(conversionWindow)) throw new Error("conversion_window must be SWIPE_7DAY or SWIPE_28DAY_VIEW_1DAY");
-  const targeting = buildTargeting({ countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds });
+  const targeting = buildTargeting({ countries, minAge, maxAge, gender, interests, osType, excludeSegmentIds, includeSegmentIds, productSetId, dpaMode, audienceDays });
   const squad = {
     campaign_id: campaignId,
     name: n,
@@ -156,6 +166,7 @@ export function buildAdSquad({ campaignId, name, dailyBudget, bid, bidStrategy =
     billing_event: "IMPRESSION",
     optimization_goal: optimizationGoal,
     pixel_id: pixelId,
+    ...(productSetId ? { product_properties: { product_set_id: productSetId } } : {}),
     conversion_window: conversionWindow,
     bid_strategy: bidStrategy,
     delivery_constraint: "DAILY_BUDGET",

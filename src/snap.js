@@ -50,6 +50,27 @@ export const ENTITIES = {
     createPath: (obj) => `/adaccounts/${obj.ad_account_id}/interaction_zones`,
     updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/interaction_zones`,
   },
+  product_set: {
+    plural: "product_sets",
+    singular: "product_set",
+    getPath: (id) => `/product_sets/${id}`,
+    createPath: (obj) => `/catalogs/${obj.catalog_id}/product_sets`,
+    updatePath: () => "/product_sets",
+  },
+  dynamic_template: {
+    plural: "dynamic_templates",
+    singular: "dynamic_template",
+    getPath: (id) => `/dynamic_templates/${id}`,
+    createPath: (obj) => `/adaccounts/${obj.ad_account_id}/dynamic_templates`,
+    updatePath: (obj) => `/adaccounts/${obj.ad_account_id}/dynamic_templates`,
+  },
+  catalog: {
+    plural: "catalogs",
+    singular: "catalog",
+    getPath: (id) => `/catalogs/${id}`,
+    createPath: (obj) => `/organizations/${obj.organization_id}/catalogs`,
+    updatePath: (obj) => `/organizations/${obj.organization_id}/catalogs`,
+  },
   campaign: {
     plural: "campaigns",
     singular: "campaign",
