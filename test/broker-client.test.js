@@ -5,6 +5,10 @@ import assert from "node:assert/strict";
 import worker from "../broker/worker.js";
 import { brokerUrlFrom, refreshViaBroker, startBrokerLogin } from "../src/broker.js";
 import { SnapClient } from "../src/snap.js";
+import { webcrypto as nodeCrypto } from "node:crypto";
+
+// Node 18 has no global `crypto` (Cloudflare Workers and Node 20+ do); the Worker code expects it.
+globalThis.crypto ??= nodeCrypto;
 
 const ENV = { SNAP_CLIENT_ID: "app-id", SNAP_CLIENT_SECRET: "APP-SECRET-VALUE", STATE_KEY: "k".repeat(40), PUBLIC_URL: "https://login.example" };
 const REFRESH = "REFRESH-TOKEN-FOR-ALICE-" + "x".repeat(300);
