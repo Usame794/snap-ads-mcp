@@ -5,7 +5,7 @@
   "display_name": "Ads MCP for Snapchat",
   "version": "0.9.3",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
-  "long_description": "Unofficial. Runs on your computer with your own Snapchat OAuth app. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". With the shared login you only log in with Snapchat; no OAuth app is needed.",
+  "long_description": "Unofficial. Runs on your computer. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
   "author": {
     "name": "Usame794",
     "url": "https://github.com/Usame794"

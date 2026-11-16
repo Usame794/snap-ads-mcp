@@ -22,7 +22,7 @@ Everything runs on your computer. These are the only outside addresses it contac
 | `tr.snapchat.com` | Conversions API **test** events and their status (`snap_capi_*`) | Your access token and one test event; an email is hashed first. Real conversion events are never sent. |
 | `adsapi.snapchat.com/v1/ads_library/...` | Competitor ads (`snap_competitor_ads`) | The advertiser name you search for. **No token**, nothing about your account. |
 | The links of your own active ads | `snap_check_landing_pages` opens each link once | A plain request. Only `https`, never private, loopback or link-local addresses, and every redirect is checked again. No credentials. |
-| The shared login service (`SNAP_BROKER_URL`), only if you chose the shared login | Logging in, and renewing the 30-minute access token | Your refresh token (it must, to renew). It stores nothing; see `PRIVACY.md`. Only use a service you trust. |
+| The shared login service (`SNAP_BROKER_URL`, default `ads-mcp-for-snapchat-login.ads-mcp.workers.dev`; `off` disables it), only if you chose the shared login | Logging in, and renewing the 30-minute access token | Your refresh token (it must, to renew). It stores nothing; see `PRIVACY.md`. Only use a service you trust. |
 
 Text that comes back from outside (competitors' ads, page contents, ad review reasons) is untrusted data: it is cut, marked as such in the answer, and must not be followed as instructions. `SNAP_PORTFOLIO_FILES` can only be set by you in your own settings; the AI app cannot choose which files are read. The audit log removes credentials, emails and phone numbers from logged arguments.
 

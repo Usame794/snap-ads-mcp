@@ -8,6 +8,8 @@ Ads MCP for Snapchat is open-source software that runs **on your own computer**.
 - Your AI app (for example Claude) sees the data the tool returns, under that app's own terms.
 
 ## The shared login service (optional)
+The default service is at `https://ads-mcp-for-snapchat-login.ads-mcp.workers.dev`. It is run by the maintainer of this project on Cloudflare Workers; the code it runs is `broker/worker.js` in this repository. Set `SNAP_BROKER_URL=off` to turn it off, or point `SNAP_BROKER_URL` at your own copy.
+
 The service lets you log in with Snapchat without creating your own Snapchat app. It is a small, stateless program (`broker/worker.js`, running on Cloudflare Workers).
 
 **What it does**
