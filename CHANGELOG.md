@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Login service: the browser cookie that ties a login to the browser that started it is now sent after Snapchat's redirect in every browser (SameSite=None instead of Lax), and the error page says whether the link expired or the browser did not start the login.
+
 - A GitHub Action builds the Claude Desktop file and creates the GitHub Release when a version tag is pushed.
 
 ## 0.9.2 (2026-11-15)

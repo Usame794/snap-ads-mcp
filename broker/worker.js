@@ -79,16 +79,19 @@ async function login(request, env) {
   const state = await signState(env, { p: Number(port), k: pk, n: nonce, e: Date.now() + STATE_MINUTES * 60_000 });
   const auth = new URL(AUTHORIZE);
   auth.search = new URLSearchParams({ response_type: "code", client_id: env.SNAP_CLIENT_ID, redirect_uri: `${origin(request, env)}/callback`, scope: "snapchat-marketing-api", state }).toString();
-  return new Response(null, { status: 302, headers: { Location: auth.toString(), "Set-Cookie": `${COOKIE}=${nonce}; Path=/callback; Max-Age=${STATE_MINUTES * 60}; HttpOnly; Secure; SameSite=Lax`, ...SECURITY_HEADERS } });
+  return new Response(null, { status: 302, headers: { Location: auth.toString(), "Set-Cookie": `${COOKIE}=${nonce}; Path=/callback; Max-Age=${STATE_MINUTES * 60}; HttpOnly; Secure; SameSite=None`, ...SECURITY_HEADERS } });
 }
 
 async function callback(request, env, fetchImpl) {
   need(env, "SNAP_CLIENT_ID", "SNAP_CLIENT_SECRET", "STATE_KEY");
   const u = new URL(request.url);
-  const clear = { "Set-Cookie": `${COOKIE}=; Path=/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax` };
+  const clear = { "Set-Cookie": `${COOKIE}=; Path=/callback; Max-Age=0; HttpOnly; Secure; SameSite=None` };
   const state = await readState(env, u.searchParams.get("state"));
-  if (!state || !state.k || !validPort(String(state.p)) || !validNonce(state.n) || getCookie(request, COOKIE) !== state.n) {
-    return page("Login expired", "<h1>This login link is not valid any more</h1><p>It may have expired, or it was opened in a different browser. Start again from the setup command.</p>", 400, clear);
+  if (!state || !state.k || !validPort(String(state.p)) || !validNonce(state.n)) {
+    return page("Login expired", "<h1>This login link is not valid any more</h1><p>It has expired or was changed. Start again from the setup command.</p>", 400, clear);
+  }
+  if (getCookie(request, COOKIE) !== state.n) {
+    return page("Login expired", "<h1>This browser did not start the login</h1><p>The login must finish in the same browser window it started in, and the address must not be reloaded or opened a second time. Allow cookies for this site, then start again from the setup command.</p>", 400, clear);
   }
   if (u.searchParams.get("error")) return page("Login cancelled", "<h1>Snapchat did not approve the login</h1><p>Nothing was saved. You can close this tab and start again.</p>", 400, clear);
   const code = u.searchParams.get("code");
