@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.4 (2026-11-16)
+
+- Claude Desktop extension: an icon, a link to the privacy page, and the corrected description (the shared login needs no OAuth app).
+
 - `setup` asks less: a single ad account is chosen automatically, and one question ("use the safe defaults?", Enter = yes) replaces the budget, country and read-only questions. Answer n to get them back.
 - README: a "Get started in 2 minutes" section at the top; the first section no longer says an OAuth app is required.
 
