@@ -5,6 +5,9 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSetup, launchCommand } from "../src/setup.js";
+
+// The package default login service must not leak into tests that expect no service.
+process.env.SNAP_BROKER_URL = "off";
 import { authorizeUrl, extractCode, listAdAccounts } from "../src/oauth.js";
 
 const CLIENT_ID = "d792daec-e585-467a-ad90-ea68ad3851bc".replace(/./g, (c) => (c === "-" ? "-" : "a"));
@@ -190,7 +193,7 @@ test("snap_connect without a Client ID and secret explains where to enter them",
   const { SnapClient } = await import("../src/snap.js");
   const { registerTools } = await import("../src/tools.js");
   const server = new McpServer({ name: "t", version: "1" });
-  registerTools(server, new SnapClient({ env: {}, fetchImpl: async () => ({}) }), { SNAP_LOG_FILE: join(mkdtempSync(join(tmpdir(), "c-")), "l.jsonl") });
+  registerTools(server, new SnapClient({ env: { SNAP_BROKER_URL: "off" }, fetchImpl: async () => ({}) }), { SNAP_LOG_FILE: join(mkdtempSync(join(tmpdir(), "c-")), "l.jsonl") });
   const client = new Client({ name: "c", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(a), client.connect(b)]);

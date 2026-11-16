@@ -1,9 +1,9 @@
 {
   "name": "ads-mcp-for-snapchat",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Unofficial local MCP server for the Snapchat Marketing API: reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "mcpName": "io.github.Usame794/ads-mcp-for-snapchat",
-  "adsMcpBroker": "",
+  "adsMcpBroker": "https://ads-mcp-for-snapchat-login.ads-mcp.workers.dev",
   "type": "module",
   "main": "src/index.js",
   "bin": {

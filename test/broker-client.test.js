@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 import worker from "../broker/worker.js";
 import { brokerUrlFrom, refreshViaBroker, startBrokerLogin } from "../src/broker.js";
 import { SnapClient } from "../src/snap.js";
+
+// The package default login service must not leak into tests that expect no service.
+process.env.SNAP_BROKER_URL = "off";
 import { webcrypto as nodeCrypto } from "node:crypto";
 
 // Node 18 has no global `crypto` (Cloudflare Workers and Node 20+ do); the Worker code expects it.
@@ -120,10 +123,18 @@ test("SnapClient with a refresh token and no app secret renews through the servi
   assert.equal(await own.accessToken(), "OWN");
   // nothing configured: a helpful message
   await assert.rejects(new SnapClient({ env: {}, fetchImpl }).accessToken(), /Run `npx -y ads-mcp-for-snapchat setup`/);
-  await assert.rejects(new SnapClient({ env: { SNAP_REFRESH_TOKEN: "r" }, fetchImpl }).accessToken(), /Missing SNAP_CLIENT_ID/, "no service address and no secret");
+  await assert.rejects(new SnapClient({ env: { SNAP_REFRESH_TOKEN: "r", SNAP_BROKER_URL: "off" }, fetchImpl }).accessToken(), /Missing SNAP_CLIENT_ID/, "no service address and no secret");
 });
 
 test("a refused refresh says to run setup again and never echoes the token", async () => {
   const fetchImpl = async () => ({ ok: false, status: 401, json: async () => ({ error: "snapchat_refused", reason: "invalid_grant" }) });
   await assert.rejects(refreshViaBroker("https://login.example", REFRESH, fetchImpl), (e) => /run setup again/.test(e.message) && !e.message.includes(REFRESH));
+});
+
+test("the package default login service is a valid https address, and SNAP_BROKER_URL=off turns it off", () => {
+  const def = brokerUrlFrom({});
+  assert.match(def, /^https:\/\/[a-z0-9.-]+$/, "the shipped default is a plain https origin");
+  assert.equal(brokerUrlFrom({ SNAP_BROKER_URL: "off" }), null);
+  assert.equal(brokerUrlFrom({ SNAP_BROKER_URL: "none" }, "https://default.example"), null);
+  assert.equal(brokerUrlFrom({ SNAP_BROKER_URL: "https://mine.example" }), "https://mine.example");
 });

@@ -30,9 +30,11 @@ In every case `snap_create_ad` picks the matching ad type (REMOTE_WEBPAGE, SNAP_
 `npx -y ads-mcp-for-snapchat verify` (or `node src/cli.js verify` in a git checkout; add `--details` to also list the specific problems it found: broken links, pixel issues, feed errors, audience problems, rejected ads) runs every read-only tool on your real account, one by one, and prints a short list: what worked, what failed and why, what was skipped (and which setting it needs). It changes nothing: it only calls tools that declare themselves read-only and forces read-only mode. The output contains no tokens and only shortened ids, so it is safe to paste into an issue.
 
 ## Easiest: log in with Snapchat (no OAuth app)
-**Not available yet.** The code is built and tested, but no shared login service has been deployed and Snap has not yet been asked whether a shared app may serve other advertisers. Until then, connect with your own Snapchat app (next section: about 5 minutes, and `setup` walks you through it).
+Run `npx -y ads-mcp-for-snapchat setup` and choose **1. Shared login**, or install the Claude Desktop file, leave Client ID and secret empty, and ask Claude: "Connect my Snapchat ad account." You log in with Snapchat in your browser and pick your ad account. No OAuth app to create.
 
-Once a service exists (see `broker/README.md` and `PRIVACY.md`; you can also run your own), you will not need an OAuth app: run `npx -y ads-mcp-for-snapchat setup` and choose **1. Shared login**, or install the Claude Desktop file, leave Client ID and secret empty, and ask Claude: "Connect my Snapchat ad account." You log in with Snapchat in your browser and pick your ad account. The service only passes your login along: it stores nothing, and your access is sealed so only your own computer can read it.
+How it works: a small login service (`broker/`, code in this repository) passes your login along and stores nothing, and your access is sealed so only your own computer can read it. Read `PRIVACY.md` first. The tool itself still runs only on your computer.
+
+**Status: new.** It works end to end on the maintainer's real login and ad accounts, but Snap has not yet been asked to confirm that one shared app may serve other advertisers. If the login is refused for you, or you prefer not to rely on a shared service, use your own Snapchat app (next section: about 5 minutes, and `setup` walks you through it) or run your own copy of the service (`broker/README.md`).
 
 ## Easy setup (about 5 minutes)
 First, once: in [Snap Business Manager](https://business.snapchat.com) open **Business Details > OAuth Apps > + OAuth App**, use the Redirect URI `https://127.0.0.1/callback`, and copy the **Client ID** and **Client Secret** (the secret is shown only once).
@@ -92,7 +94,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_ACCOUNT_CURRENCY` | not set | If set (e.g. `USD`), writes are refused unless the ad account uses that currency |
 | `SNAP_READ_ONLY` | 0 | `1` = previews and reads only |
 | `SNAP_CAPI_TOKEN` | (none) | Only for the Conversions API test tools (`snap_capi_*`): a Conversions API token made in Ads Manager (Events Manager > Conversions API > Generate token), used if Snap does not accept your normal login there. Sent only to `tr.snapchat.com`. |
-| `SNAP_BROKER_URL` | (none) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
+| `SNAP_BROKER_URL` | the maintainer's login service (`off` turns the shared login off) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
 | `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
 | `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `setup, read, reports, checks, changes, create` (comma-separated). Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
@@ -275,7 +277,7 @@ Verified on the maintainer's own ad account. Anything not listed here is covered
 **Not verified live:**
 - Everything that **writes** and was added in 0.7.0 or later: catalog ad creation (product sets, templates, campaign, ad squad, creative, ad), frequency cap, ad schedule, placement, bid-strategy switching, and the new ad squad goals. Built from Snap's documentation and mocked tests.
 - The Conversions API test tools (they need a Conversions API token: `SNAP_CAPI_TOKEN`), the portfolio summary (needs a second settings file), blended ROAS (needs your store's revenue), creative comparison, ad preview, and the playbooks.
-- The shared login service against the real Snapchat login (it is tested against a fake one; deploy it and follow `broker/README.md` step 5).
+- The shared login for people **outside** the maintainer's organization, and the Claude Desktop extension's login. (Setup's shared login, the account list and renewing the login through the service were run live on the maintainer's account.)
 - The 24-hour spend limit and absolute limits on real writes (mocked tests only), `SNAP_HUMAN_APPROVAL=elicit` in Claude Code, `snap_create_creative` with a WEB_VIEW link, a campaign-level `snap_set_daily_budget`, a successful `snap_delete` of an ad squad, ad or audience, a customer-list upload of real data, and Node 18 / 20 outside CI.
 
 ## Not built
