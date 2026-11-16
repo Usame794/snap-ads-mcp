@@ -13,6 +13,7 @@ const stage = join(ROOT, "dist", "mcpb");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 for (const f of [...pkg.files, "package.json", "package-lock.json", "manifest.json"]) cpSync(join(ROOT, f), join(stage, f), { recursive: true });
+cpSync(join(ROOT, "assets", "icon.png"), join(stage, "icon.png"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 execFileSync(npm, ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: stage, stdio: "inherit" });
 const out = join(ROOT, "dist", `ads-mcp-for-snapchat-${pkg.version}.mcpb`);
