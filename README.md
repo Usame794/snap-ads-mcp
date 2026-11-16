@@ -4,8 +4,17 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 
 > **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool can change real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Check Snap's developer terms for your own use. Review every preview before approving.
 
+## Get started in 2 minutes
+**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account.
+
+**Claude Code, Cursor, VS Code or a terminal:**
+```bash
+npx -y ads-mcp-for-snapchat setup
+```
+Choose **1. Shared login**, log in with Snapchat, pick the ad account, and press Enter at the safety question (it starts read-only; nothing can be changed until you allow it). Then check everything with `npx -y ads-mcp-for-snapchat verify`.
+
 ## What it is, and what it is not
-- **It runs on your machine, with your own Snapchat OAuth app and your own ad account.** Nothing is hosted or shared, and no credentials leave your computer except to Snap's API.
+- **It runs on your machine, with your own ad account.** You connect with a normal Snapchat login (the shared login service) or with your own Snapchat OAuth app. The tool itself is not hosted, and no ad account data leaves your computer except to Snap's API.
 - **It is a safety-first tool, not an autopilot.** Writes are previewed first, created things start paused, and there are hard limits on money. See "Safety rules" below, and read "What the approval token is not".
 - **It is not a hosted service.** Services that only accept remote MCP servers (for example ChatGPT connectors) cannot use it as it is. Do not expose it on the internet.
 - **Money limits are in your account's currency.** Defaults (`SNAP_MAX_DAILY_BUDGET=1000`, `SNAP_MAX_BID=50`) are deliberately conservative; set your own in `.env`.

@@ -70,7 +70,7 @@ test("setup: from an empty folder to a connected, registered, read-only account"
   const { fetchImpl, calls } = fakeSnap();
   const execCalls = [];
   const exec = (cmd, args) => execCalls.push([cmd, ...args]);
-  const { io, printed } = scriptedIO([CLIENT_ID, SECRET, landing(), "2", "300", "SA", "", "my-snap"]);
+  const { io, printed } = scriptedIO([CLIENT_ID, SECRET, landing(), "2", "n", "300", "SA", "", "my-snap"]);
   const r = await runSetup({ io, file, fetchImpl, open: browser, exec, claudeAvailable: () => true, root: "/work/ads-mcp-for-snapchat" });
 
   const saved = readFileSync(file, "utf8");
@@ -97,7 +97,7 @@ test("setup: a wrong paste or an expired code is explained and retried, and noth
   const dir = mkdtempSync(join(tmpdir(), "setup-"));
   const file = join(dir, ".env");
   const { fetchImpl } = fakeSnap({ refuseCode: 1 });
-  const { io, printed } = scriptedIO(["not-an-id", CLIENT_ID, "short", SECRET, "https://127.0.0.1/callback?state=x", landing(), landing(), "1", "", "", "n", "s"]);
+  const { io, printed } = scriptedIO(["not-an-id", CLIENT_ID, "short", SECRET, "https://127.0.0.1/callback?state=x", landing(), landing(), "1", "n", "", "", "n", "s"]);
   const r = await runSetup({ io, file, fetchImpl, open: browser, exec: () => {}, claudeAvailable: () => false, root: "/x/node_modules/ads-mcp-for-snapchat" });
   const out = printed.join("\n");
   assert.match(out, /That is not a Client ID/);
@@ -116,7 +116,7 @@ test("setup: switching an existing file to another account clears that account's
   writeFileSync(file, `SNAP_CLIENT_ID=${CLIENT_ID}\nSNAP_CLIENT_SECRET=${SECRET}\nSNAP_AD_ACCOUNT_ID=${ACC_A}\nSNAP_PIXEL_ID=pixel-of-a\nSNAP_BRAND_PROFILE_ID=profile-of-a\n`);
   const { fetchImpl } = fakeSnap();
   // Enter keeps the saved Client ID and secret.
-  const { io } = scriptedIO(["", "", landing(), "2", "", "", "", ""]);
+  const { io } = scriptedIO(["", "", landing(), "2", "", ""]);
   await runSetup({ io, file, fetchImpl, open: browser, exec: () => {}, claudeAvailable: () => false, root: "/work/ads-mcp-for-snapchat" });
   const lines = readFileSync(file, "utf8").split("\n");
   assert.ok(lines.includes(`SNAP_AD_ACCOUNT_ID=${ACC_B}`));
@@ -200,4 +200,16 @@ test("snap_connect without a Client ID and secret explains where to enter them",
   const r = await client.callTool({ name: "snap_connect", arguments: {} });
   assert.ok(r.isError && /extension's settings/.test(r.content[0].text));
   await client.close();
+});
+
+test("setup: pressing Enter at the safety question saves the safe defaults (read-only, budget limit) and asks nothing more", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "setup-"));
+  const file = join(dir, ".env");
+  const { fetchImpl } = fakeSnap();
+  const { io, printed } = scriptedIO([CLIENT_ID, SECRET, landing(), "2", "", "my-snap"]);
+  await runSetup({ io, file, fetchImpl, open: browser, exec: () => {}, claudeAvailable: () => false, root: "/work/ads-mcp-for-snapchat" });
+  const lines = readFileSync(file, "utf8").split("\n");
+  assert.ok(lines.includes("SNAP_READ_ONLY=1"), "read-only");
+  assert.ok(lines.includes("SNAP_MAX_DAILY_BUDGET=1000"), "default budget limit");
+  assert.ok(!printed.join("\n").includes("Main country"), "the extra questions were skipped");
 });
