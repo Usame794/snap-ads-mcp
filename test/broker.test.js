@@ -41,7 +41,7 @@ test("login: sends the person to Snapchat with a signed state and a cookie bound
   assert.equal(to.origin + to.pathname, "https://accounts.snapchat.com/login/oauth2/authorize");
   assert.deepEqual([to.searchParams.get("client_id"), to.searchParams.get("redirect_uri"), to.searchParams.get("scope"), to.searchParams.get("response_type")], ["app-id", "https://login.example/callback", "snapchat-marketing-api", "code"]);
   const cookie = res.headers.get("Set-Cookie");
-  assert.match(cookie, new RegExp(`^ads_mcp_login=${NONCE}; Path=/callback; Max-Age=600; HttpOnly; Secure; SameSite=Lax$`));
+  assert.match(cookie, new RegExp(`^ads_mcp_login=${NONCE}; Path=/callback; Max-Age=600; HttpOnly; Secure; SameSite=None$`));
   const state = await readState(ENV, to.searchParams.get("state"));
   assert.deepEqual([state.p, state.n], [53123, NONCE]);
   assert.ok(!res.headers.get("Location").includes("APP-SECRET-VALUE"), "the secret is never in a link");
@@ -88,7 +88,9 @@ test("callback: a state that was changed, expired, signed by another key, or use
   assert.equal((await go(expired)).status, 400, "expired");
   const otherKey = await signState({ ...ENV, STATE_KEY: "z".repeat(40) }, { p: 53123, k: "x", n: NONCE, e: Date.now() + 60000 });
   assert.equal((await go(otherKey)).status, 400, "signed by a different key");
-  assert.equal((await go(state, null)).status, 400, "no cookie: a login started in another browser cannot be completed here");
+  const noCookie = await go(state, null);
+  assert.equal(noCookie.status, 400, "no cookie: a login started in another browser cannot be completed here");
+  assert.match(await noCookie.text(), /did not start the login/, "the page says what is wrong, so it can be fixed");
   assert.equal((await go(state, "ads_mcp_login=another-nonce-another-nonce")).status, 400, "wrong cookie");
   assert.equal(snap.calls.length, 0, "Snapchat was never contacted for any of these");
 });
