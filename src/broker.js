@@ -22,7 +22,7 @@ function packageDefault() {
 // sent to this address, so a plain http address to anything else is refused.
 export function brokerUrlFrom(env = process.env, fallback = packageDefault()) {
   const raw = String(env.SNAP_BROKER_URL ?? "").trim() || String(fallback ?? "").trim();
-  if (!raw) return null;
+  if (!raw || /^(off|none|no)$/i.test(raw)) return null; // SNAP_BROKER_URL=off turns the shared login off
   let u;
   try {
     u = new URL(raw);

@@ -224,7 +224,15 @@ export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open =
   const launch = launchCommand(root);
   const defaultFile = join(dataDir({ root }), ".env");
   const envArgs = file === defaultFile ? [] : ["-e", `SNAP_ENV_FILE=${file}`];
-  const name = (await io.ask("  Name for this server in Claude [snapchat-ads]: ")) || "snapchat-ads";
+  let name = "snapchat-ads";
+  for (let tries = 0; tries < 3; tries++) {
+    const answer = ((await io.ask("  Name for this server in Claude [snapchat-ads]: ")) || "snapchat-ads").trim();
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(answer)) {
+      name = answer;
+      break;
+    }
+    say("  Use only letters, numbers, - and _ (for example snapchat-ads).");
+  }
   let registered = false;
   if (claudeAvailable(exec)) {
     try {

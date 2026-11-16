@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.9.3 (2026-11-16)
+
+- **Shared login is live.** The login service is deployed and the package uses it by default (`npx -y ads-mcp-for-snapchat setup`, choose 1). Verified on a real Snapchat login: login, account list, saving the access, renewing it through the service, and `verify` (20 of 24 checks ran; the rest need optional settings). Snap has not yet been asked to confirm a shared app for other advertisers; own-app setup still works.
+- `setup` checks the name given for the server in Claude (letters, numbers, - and _) instead of passing a pasted command to Claude Code.
+
 - Login service: the browser cookie that ties a login to the browser that started it is now sent after Snapchat's redirect in every browser (SameSite=None instead of Lax), and the error page says whether the link expired or the browser did not start the login.
 
 - A GitHub Action builds the Claude Desktop file and creates the GitHub Release when a version tag is pushed.

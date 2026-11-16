@@ -11,6 +11,9 @@ import worker from "../broker/worker.js";
 import { runSetup } from "../src/setup.js";
 import { SnapClient } from "../src/snap.js";
 import { registerTools } from "../src/tools.js";
+
+// The package default login service must not leak into tests that expect no service.
+process.env.SNAP_BROKER_URL = "off";
 import { webcrypto as nodeCrypto } from "node:crypto";
 
 // Node 18 has no global `crypto` (Cloudflare Workers and Node 20+ do); the Worker code expects it.
@@ -154,7 +157,7 @@ test("snap_connect with the shared login: a link, the browser finishes it, no ad
 });
 
 test("snap_connect with no service address and no app credentials still explains where to enter them", async () => {
-  const t = await chatTool({});
+  const t = await chatTool({ SNAP_BROKER_URL: "off" });
   try {
     assert.match((await t.call()).text, /extension's settings/);
   } finally {
