@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `setup` asks less: a single ad account is chosen automatically, and one question ("use the safe defaults?", Enter = yes) replaces the budget, country and read-only questions. Answer n to get them back.
+- README: a "Get started in 2 minutes" section at the top; the first section no longer says an OAuth app is required.
+
 - Docs: PRIVACY.md and SECURITY.md name the default login service address and how to turn it off; the Claude Desktop extension description no longer says an OAuth app is required.
 
 ## 0.9.3 (2026-11-16)

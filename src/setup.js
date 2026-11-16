@@ -195,7 +195,7 @@ export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open =
   const accounts = await listAdAccounts(client);
   if (!accounts.length) throw new Error("This login cannot see any ad account. Ask the account's admin to add you, then run setup again.");
   accounts.forEach((a, i) => say(`  ${String(i + 1).padStart(2)}. ${a.name} (${a.organization}, ${a.status}, ${a.currency})`));
-  const pick = await askUntil(io, `Number of the ad account (1-${accounts.length}): `, (a) => (Number.isInteger(Number(a)) && Number(a) >= 1 && Number(a) <= accounts.length ? null : `Type a number from 1 to ${accounts.length}.`));
+  const pick = accounts.length === 1 ? "1" : await askUntil(io, `Number of the ad account (1-${accounts.length}): `, (a) => (Number.isInteger(Number(a)) && Number(a) >= 1 && Number(a) <= accounts.length ? null : `Type a number from 1 to ${accounts.length}.`));
   const chosen = accounts[Number(pick) - 1];
   if (chosen.id !== cur.SNAP_AD_ACCOUNT_ID) {
     setEnvValue("SNAP_AD_ACCOUNT_ID", chosen.id, file);
@@ -209,15 +209,26 @@ export async function runSetup({ io, file = envFile(), fetchImpl = fetch, open =
 
   // 4. Safety
   cur = readSettings(file);
-  say("STEP 4 of 5: safety settings (Enter keeps the value in brackets)");
+  say("STEP 4 of 5: safety settings");
+  const defaultBudget = cur.SNAP_MAX_DAILY_BUDGET || 1000;
+  let ro = "y";
+  const quick = await io.ask(`  Use the safe defaults (start read-only; the AI may never set a daily budget above ${defaultBudget} ${chosen.currency ?? ""})? [Y/n]: `);
+  if (!/^n/i.test(quick)) {
+    setEnvValue("SNAP_MAX_DAILY_BUDGET", String(defaultBudget), file);
+    setEnvValue("SNAP_READ_ONLY", "1", file);
+    say("  Saved. You can change these later in the settings file.");
+    say("");
+  } else {
+  say("  (Enter keeps the value in brackets)");
   const budget = await askUntil(io, `  Highest daily budget the AI may set, in ${chosen.currency ?? "account currency"} [${cur.SNAP_MAX_DAILY_BUDGET || 1000}]: `, (a) => (!a || (/^\d+(\.\d+)?$/.test(a) && Number(a) > 0) ? null : "A plain number, such as 300."));
   if (budget) setEnvValue("SNAP_MAX_DAILY_BUDGET", budget, file);
   const country = await askUntil(io, `  Main country, 2 letters such as us, sa, ae (Enter to skip) [${cur.SNAP_DEFAULT_COUNTRY || ""}]: `, (a) => (!a || /^[a-z]{2}$/i.test(a) ? null : "Two letters, such as us."));
   if (country) setEnvValue("SNAP_DEFAULT_COUNTRY", country.toLowerCase(), file);
-  const ro = await io.ask("  Start in read-only mode, so nothing can be changed until you are ready? [Y/n]: ");
+  ro = await io.ask("  Start in read-only mode, so nothing can be changed until you are ready? [Y/n]: ");
   setEnvValue("SNAP_READ_ONLY", /^n/i.test(ro) ? "0" : "1", file);
   say("  Saved.");
   say("");
+  }
 
   // 5. Register
   say("STEP 5 of 5: add it to your AI app");
