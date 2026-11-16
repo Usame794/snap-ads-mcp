@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Docs: PRIVACY.md and SECURITY.md name the default login service address and how to turn it off; the Claude Desktop extension description no longer says an OAuth app is required.
+
 ## 0.9.3 (2026-11-16)
 
 - **Shared login is live.** The login service is deployed and the package uses it by default (`npx -y ads-mcp-for-snapchat setup`, choose 1). Verified on a real Snapchat login: login, account list, saving the access, renewing it through the service, and `verify` (20 of 24 checks ran; the rest need optional settings). Snap has not yet been asked to confirm a shared app for other advertisers; own-app setup still works.
