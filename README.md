@@ -102,6 +102,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | Setting | Default | Meaning |
 |---|---|---|
 | `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
+| `SNAP_WARN_DAILY_BUDGET` | (none) | Optional **warning** level, not a limit: a change that adds more than this daily budget shows a `budget_warning` in the preview. Without it, the preview still warns when a change adds more than twice your largest running ad squad (or, on an account with none running, more than half of `SNAP_MAX_DAILY_BUDGET`). |
 | `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |
 | `SNAP_MAX_BID` | 50 | Highest max bid |
 | `SNAP_MAX_BUDGET_INCREASE_PCT` | 100 | Largest budget increase per step and per 24 hours |

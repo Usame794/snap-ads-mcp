@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Budget warning.** A preview that adds a daily budget unusually large for the account now shows a `budget_warning`: more than twice the largest running ad squad, more than half the limit when nothing is running, or above the optional `SNAP_WARN_DAILY_BUDGET`. It is a warning only; the limits still apply and nothing is blocked by it.
+
 - README: a short section on how this project relates to Snap's own read-only Ads MCP server (use theirs to look, this one to launch and change campaigns, safely).
 
 ## 0.9.4 (2026-11-16)

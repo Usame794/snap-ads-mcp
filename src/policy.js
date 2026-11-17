@@ -67,7 +67,14 @@ export function loadPolicy(env = process.env) {
   } catch (e) {
     errors.push(e.message);
   }
+  let warnDailyBudget = null;
+  if (env.SNAP_WARN_DAILY_BUDGET !== undefined && String(env.SNAP_WARN_DAILY_BUDGET).trim() !== "") {
+    const w = Number(String(env.SNAP_WARN_DAILY_BUDGET).trim());
+    if (Number.isFinite(w) && w > 0 && w <= HARD_MAX) warnDailyBudget = w;
+    else errors.push("SNAP_WARN_DAILY_BUDGET must be a positive number (a budget above this shows a warning in the preview).");
+  }
   const policy = {
+    warnDailyBudget,
     toolsets,
     defaultCountry: country && /^[a-z]{2}$/.test(country) ? country : null,
     defaultPhoneCode: phoneCode && /^[1-9]\d{0,3}$/.test(phoneCode) ? phoneCode : null,
