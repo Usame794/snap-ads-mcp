@@ -5,7 +5,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 > **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool can change real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Check Snap's developer terms for your own use. Review every preview before approving.
 
 ## Get started in 2 minutes
-**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account.
+**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account. In the Desktop extension, changes are **allowed from the start** (Read-only is off by default): each one is previewed and needs your approval, everything created starts paused, and the daily budget limit starts at 500 (change it in the extension's settings). Switch Read-only on there if you only want to look.
 
 **Claude Code, Cursor, VS Code or a terminal:**
 ```bash

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.5 (2026-11-17)
+
+- **Claude Desktop extension starts with changes allowed** (Read-only is off by default) and a daily budget limit of 500. Every change is still previewed and needs approval, everything created starts paused, and the limit and the new budget warning apply. `npx ... setup` still starts read-only unless you choose otherwise.
+
 - **Budget warning.** A preview that adds a daily budget unusually large for the account now shows a `budget_warning`: more than twice the largest running ad squad, more than half the limit when nothing is running, or above the optional `SNAP_WARN_DAILY_BUDGET`. It is a warning only; the limits still apply and nothing is blocked by it.
 
 - README: a short section on how this project relates to Snap's own read-only Ads MCP server (use theirs to look, this one to launch and change campaigns, safely).
