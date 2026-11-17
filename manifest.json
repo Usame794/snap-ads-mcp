@@ -3,9 +3,9 @@
   "manifest_version": "0.3",
   "name": "ads-mcp-for-snapchat",
   "display_name": "Ads MCP for Snapchat",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
-  "long_description": "Unofficial. Runs on your computer. Every change is previewed and needs your approval; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
+  "long_description": "Unofficial. Runs on your computer. Claude can create and change campaigns: every change is previewed and needs your approval, everything it creates starts paused, and your daily budget limit always applies; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
   "author": {
     "name": "Usame794",
     "url": "https://github.com/Usame794"
@@ -59,8 +59,8 @@
     "max_daily_budget": {
       "type": "number",
       "title": "Highest daily budget",
-      "description": "The highest daily budget Claude may set, in your account's currency.",
-      "default": 1000,
+      "description": "The highest daily budget Claude may set, in your account's currency. A change that adds an unusually large budget also shows a warning in the preview.",
+      "default": 500,
       "min": 5,
       "required": true
     },
@@ -74,8 +74,8 @@
     "read_only": {
       "type": "boolean",
       "title": "Read-only",
-      "description": "On: Claude can read and preview but change nothing. Turn it off when you are ready.",
-      "default": true,
+      "description": "Off (the default): Claude can create and change campaigns, but every change is previewed and needs your approval, and everything it creates starts paused. Turn on to let Claude read and preview only.",
+      "default": false,
       "required": true
     }
   },
