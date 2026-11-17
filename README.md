@@ -13,6 +13,15 @@ npx -y ads-mcp-for-snapchat setup
 ```
 Choose **1. Shared login**, log in with Snapchat, pick the ad account, and press Enter at the safety question (it starts read-only; nothing can be changed until you allow it). Then check everything with `npx -y ads-mcp-for-snapchat verify`.
 
+## How this relates to Snap's own Ads MCP server
+Snap runs its own hosted **Ads MCP server** (see Snap's developer documentation). According to Snap's documentation it is **read-only**: an agent can read Snapchat Ads data but cannot create, update or delete anything, and it works with several AI apps without installing anything.
+
+- **Only need to look at your numbers?** Snap's own server is the simplest way, and you don't have to install anything.
+- **Want to launch and change campaigns?** That is what this project is for: you can create campaigns, ad squads, creatives and ads and change budgets, bids, schedules and placements, with a **preview and your approval for every change**, spend limits, undo and a change log, and everything created starts **paused**. Turn on changes with `SNAP_READ_ONLY=0` (the safe default starts read-only; it is a switch, not a limit).
+- You can use both side by side.
+
+This project is unofficial and is not made, endorsed or supported by Snap. It runs on your own computer; it is not the hosted service Snap provides.
+
 ## What it is, and what it is not
 - **It runs on your machine, with your own ad account.** You connect with a normal Snapchat login (the shared login service) or with your own Snapchat OAuth app. The tool itself is not hosted, and no ad account data leaves your computer except to Snap's API.
 - **It is a safety-first tool, not an autopilot.** Writes are previewed first, created things start paused, and there are hard limits on money. See "Safety rules" below, and read "What the approval token is not".
