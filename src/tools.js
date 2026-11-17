@@ -16,6 +16,7 @@ import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.j
 import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
+import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
 import { toolAllowed } from "./toolsets.js";
@@ -206,8 +207,10 @@ export function registerTools(server, client, env = process.env) {
             if (p.blocked) return text(p.preview);
             const repeat = repeatGuard ? approvals.recentRepeat(requestDigest) : null;
             const issued = approvals.issue(name, binding, detail);
+            const budgetWarn = added > 0 ? await budgetWarning(client, account(), { added, policy }) : null;
             return text({
               ...p.preview,
+              ...(budgetWarn ? { budget_warning: budgetWarn } : {}),
               ...(repeat ? { duplicate_warning: `An identical request was executed ${repeat.seconds_ago}s ago and will be refused if confirmed: ${JSON.stringify(repeat.summary)}` } : {}),
               ...(ledger ? { spend_impact: ledger } : {}),
               ...(policy.readOnly ? { read_only: "SNAP_READ_ONLY is on: this preview cannot be applied." } : {}),
