@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- README: a short section on how this project relates to Snap's own read-only Ads MCP server (use theirs to look, this one to launch and change campaigns, safely).
+
 ## 0.9.4 (2026-11-16)
 
 - Claude Desktop extension: an icon, a link to the privacy page, and the corrected description (the shared login needs no OAuth app).
