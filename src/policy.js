@@ -67,6 +67,12 @@ export function loadPolicy(env = process.env) {
   } catch (e) {
     errors.push(e.message);
   }
+  let mediaDir = null;
+  if (env.SNAP_MEDIA_DIR !== undefined && String(env.SNAP_MEDIA_DIR).trim() !== "") {
+    const d = String(env.SNAP_MEDIA_DIR).trim();
+    if (/^(\/|[A-Za-z]:[\\/])/.test(d)) mediaDir = d;
+    else errors.push("SNAP_MEDIA_DIR must be an absolute folder path (media and customer-list files must be inside it).");
+  }
   let warnDailyBudget = null;
   if (env.SNAP_WARN_DAILY_BUDGET !== undefined && String(env.SNAP_WARN_DAILY_BUDGET).trim() !== "") {
     const w = Number(String(env.SNAP_WARN_DAILY_BUDGET).trim());
@@ -75,6 +81,7 @@ export function loadPolicy(env = process.env) {
   }
   const policy = {
     warnDailyBudget,
+    mediaDir,
     toolsets,
     defaultCountry: country && /^[a-z]{2}$/.test(country) ? country : null,
     defaultPhoneCode: phoneCode && /^[1-9]\d{0,3}$/.test(phoneCode) ? phoneCode : null,

@@ -102,6 +102,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | Setting | Default | Meaning |
 |---|---|---|
 | `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
+| `SNAP_MEDIA_DIR` | (none) | Optional folder allow-list: when set, `snap_upload_media` and `snap_upload_customer_list` only read files inside this folder (symbolic links are resolved first). Recommended, so the server cannot be steered into reading other files on your computer. |
 | `SNAP_WARN_DAILY_BUDGET` | (none) | Optional **warning** level, not a limit: a change that adds more than this daily budget shows a `budget_warning` in the preview. Without it, the preview still warns when a change adds more than twice your largest running ad squad (or, on an account with none running, more than half of `SNAP_MAX_DAILY_BUDGET`). |
 | `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |
 | `SNAP_MAX_BID` | 50 | Highest max bid |
@@ -206,6 +207,23 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_create_story_creative` | Story Ad: 1-20 existing Snaps in a fixed order, with an optional tile for the Stories tab |
 | `snap_create_collection_creative` | Collection Ad: a main image or video with 4-20 product tiles, each opening its own page |
 | `snap_influencer_ad` | the whole influencer flow in one step: claim, wait for media, creative, paused ad |
+
+## Examples, permissions and limits
+**Things to ask your assistant** (each names the tool it will use):
+- "Which campaigns are running?" (`snap_list_campaigns`, status ACTIVE)
+- "How is spend pacing this month?" (`snap_spend_pacing`)
+- "Which ad squads are wasting money?" (`snap_budget_advice`, `snap_health_check`)
+- "Create a paused traffic campaign called Spring sale." (`snap_create_campaign`, previewed first)
+- "Raise the daily budget of ad squad X to 40." (`snap_set_daily_budget`, previewed, with a warning if the amount is unusual)
+- "Undo the last change." (`snap_undo`)
+
+**Snapchat permissions.** The Snapchat login must have access to the ad account in Ads Manager. Reading and changing both go through the login's own rights: if the login can edit campaigns in Ads Manager, so can this server; if it can only view, changes fail. Check the roles in Ads Manager under Members. Asking Snap for an item your login cannot see returns a 403 with a hint.
+
+**Rate limits.** Snap limits how many requests a login may send. The server retries reads on 429 and 5xx and honours Snap's `Retry-After`; writes are retried only on 429, never after a network failure (so a change is never applied twice). If Snap still refuses, the error says how long to wait.
+
+**Long lists.** `snap_list_*` tools take `limit`, `offset` and `response_format` (`concise` = id, name, status; `detailed` = everything). Each answer says `has_more` and `next_offset`. Results also come back as structured data next to the text.
+
+**Evaluation questions.** `test/eval/questions.json` holds ten read-only questions with known answers; `npm test` runs them against a fake Snap.
 
 ## Influencer ad-code flow
 Creators share a code like `adcode_<uuid>`. `snap_influencer_ad` claims it into the ad account (`POST /adaccounts/{id}/claim_media_by_ad_code?ad_code=&profile_id=`, parameters go in the query string), waits for the media to be READY, creates a WEB_VIEW creative on the brand profile (`SNAP_BRAND_PROFILE_ID`) and creates a **paused** ad in the ad squad you choose.

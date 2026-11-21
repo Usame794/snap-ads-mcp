@@ -16,6 +16,8 @@ import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.j
 import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
+import { assertFileAllowed } from "./media-dir.js";
+import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
 import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
@@ -39,18 +41,35 @@ import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
 import { adTypeFor, checkProductImage, mediaSize, buildCollectionCreative, buildCompositeCreative, buildCreativeElement, buildInteractionZone, buildPreviewCreative, buildSnapAdCreative, STORY_PART_TYPES, WEB_VIEW_CTAS } from "./formats.js";
 
-const text = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
+const text = (obj) => ({
+  content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }],
+  // The same answer as data, for clients that can use it. Arrays and plain text stay text only (structured content must be an object).
+  ...(obj && typeof obj === "object" && !Array.isArray(obj) ? { structuredContent: JSON.parse(JSON.stringify(obj)) } : {}),
+});
 // A list result keeps its plain array shape; anything the reader must know (cut off, more than shown) goes in a second block.
+const conciseRow = (r) => ({ id: r.id, name: r.name, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.media_status !== undefined ? { media_status: r.media_status } : {}), ...(r.type !== undefined ? { type: r.type } : {}) });
 class ListResult {
-  constructor(items, notes = []) {
-    this.items = items;
+  // Without `page` the rows are returned as they are. With it, the rows are cut to limit/offset and the answer says if more exist.
+  constructor(rows, notes = [], page = null) {
     this.notes = notes;
+    if (!page) {
+      this.items = rows;
+      this.paged = null;
+      return;
+    }
+    const { limit, offset = 0, incomplete = false, format = "detailed" } = page;
+    const end = offset + limit;
+    this.items = rows.slice(offset, end).map(format === "concise" ? conciseRow : (r) => r);
+    this.paged = { returned: this.items.length, total_matching: rows.length, offset, has_more: rows.length > end || incomplete, next_offset: rows.length > end ? end : null };
   }
 }
 const asResult = (out) => {
   if (!(out instanceof ListResult)) return text(out);
   const r = text(out.items);
-  if (out.notes.length) r.content.push({ type: "text", text: `NOTE: ${out.notes.join(" ")}` });
+  const notes = [...out.notes];
+  if (out.paged?.next_offset != null && !notes.some((n) => /offset=/.test(n))) notes.push(`More rows exist: repeat the call with offset=${out.paged.next_offset}.`);
+  r.structuredContent = { items: out.items, ...(out.paged ?? {}), ...(notes.length ? { notes } : {}) };
+  if (notes.length) r.content.push({ type: "text", text: `NOTE: ${notes.join(" ")}` });
   return r;
 };
 const fail = (e) => ({ isError: true, content: [{ type: "text", text: `Error: ${e.message}` }] });
@@ -77,7 +96,21 @@ export function registerTools(server, client, env = process.env) {
   const policy = loadPolicy(env);
   // SNAP_TOOLSETS hides whole groups of tools (see toolsets.js). Prompts and settings are not affected.
   const registerTool = server.registerTool.bind(server);
-  server.registerTool = (name, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, ...rest) : undefined);
+  // Every tool gets the same documentation pass: parameters without a description get one from tool-docs.js, and tools whose
+  // description has no "use this / not that" pointer get one. Nothing about what a tool does changes.
+  const documented = (name, config) => {
+    const next = { ...config };
+    const hint = TOOL_HINTS[name];
+    if (hint && next.description && !next.description.includes(hint)) next.description = `${next.description} ${hint}`;
+    const shape = next.inputSchema?.shape;
+    if (shape) {
+      const filled = {};
+      for (const [key, schema] of Object.entries(shape)) filled[key] = !schema.description && PARAM_DOCS[key] ? schema.describe(PARAM_DOCS[key]) : schema;
+      next.inputSchema = z.object(filled).strict();
+    }
+    return next;
+  };
+  server.registerTool = (name, config, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, documented(name, config), ...rest) : undefined);
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
   const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
   // One change log per settings file: with SNAP_ENV_FILE (one file per ad account) the log sits next to it, so 24-hour limits,
@@ -370,35 +403,39 @@ export function registerTools(server, client, env = process.env) {
 
   // Lists read every page, apply the status filter to ALL rows, and only then cut to `limit`. If anything was left out, say so.
   const nameFilter = z.string().min(1).max(100).optional().describe("Only items whose name contains this text (case-insensitive). Use it to find one item in a big account.");
-  const listRows = async (path, entity, { status, limit, nameContains }) => {
+  const listRows = async (path, entity, { status, limit, offset = 0, format, nameContains }) => {
     const { items, complete, reason } = await client.listPaged(path, entity);
     const needle = nameContains?.toLowerCase();
     const rows = items.map(brief).filter((r) => (!status || r.status === status) && (!needle || String(r.name ?? "").toLowerCase().includes(needle)));
     const notes = [];
     if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more items exist that are not included.`);
-    if (rows.length > limit) notes.push(`${rows.length} items match; showing the first ${limit}. Raise limit (max 500) or narrow the filters.`);
-    return new ListResult(rows.slice(0, limit), notes);
+    if (rows.length > limit && offset === 0) notes.push(`${rows.length} items match; showing the first ${limit}. Raise limit (max 500) or narrow the filters, or repeat with offset=${limit} for the next rows.`);
+    return new ListResult(rows, notes, { limit, offset, incomplete: !complete, format });
+  };
+  const PAGING = {
+    offset: z.number().int().min(0).default(0).describe("Skip this many rows (for the next page, use next_offset from the previous answer)."),
+    response_format: z.enum(["concise", "detailed"]).default("detailed").describe("concise = only id, name and status; detailed = every field."),
   };
 
   read(
     "snap_list_campaigns",
     {
       description: "List campaigns in an ad account (read-only). Uses SNAP_AD_ACCOUNT_ID if no account is given. Reads every page and applies the status and name_contains filters before the limit (use name_contains to find one campaign in a big account); a note says when the list is cut.",
-      shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100) },
+      shape: { ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100), ...PAGING },
     },
-    ({ ad_account_id, status, name_contains, limit }) => listRows(`/adaccounts/${account(ad_account_id)}/campaigns`, "campaign", { status, limit, nameContains: name_contains }),
+    ({ ad_account_id, status, name_contains, limit, offset, response_format }) => listRows(`/adaccounts/${account(ad_account_id)}/campaigns`, "campaign", { status, limit, offset, format: response_format, nameContains: name_contains }),
   );
 
   read(
     "snap_list_adsquads",
     {
       description: "List ad squads for a campaign, or for the whole ad account when only the account is given (read-only). Reads every page and applies the status filter before the limit; a note says when the list is cut.",
-      shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100) },
+      shape: { campaign_id: id().optional(), ad_account_id: id().optional(), status: z.enum(["ACTIVE", "PAUSED"]).optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(100), ...PAGING },
     },
-    ({ campaign_id, ad_account_id, status, name_contains, limit }) => listRows(campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`, "adsquad", { status, limit, nameContains: name_contains }),
+    ({ campaign_id, ad_account_id, status, name_contains, limit, offset, response_format }) => listRows(campaign_id ? `/campaigns/${campaign_id}/adsquads` : `/adaccounts/${account(ad_account_id)}/adsquads`, "adsquad", { status, limit, offset, format: response_format, nameContains: name_contains }),
   );
 
-  read("snap_list_ads", { description: "List ads in an ad squad (read-only). Reads every page; a note says when the list is cut.", shape: { adsquad_id: id() } }, ({ adsquad_id }) => listRows(`/adsquads/${adsquad_id}/ads`, "ad", { limit: 500 }));
+  read("snap_list_ads", { description: "List ads in an ad squad (read-only). Reads every page; a note says when the list is cut.", shape: { adsquad_id: id(), limit: z.number().int().min(1).max(500).default(500), ...PAGING } }, ({ adsquad_id, limit, offset, response_format }) => listRows(`/adsquads/${adsquad_id}/ads`, "ad", { limit, offset, format: response_format }));
 
   read("snap_get_entity", { description: "Get one campaign, ad squad or ad in full, including targeting (read-only).", shape: { entity: entityEnum, id: id() } }, ({ entity, id: entityId }) => client.getEntity(entity, entityId));
 
@@ -425,16 +462,16 @@ export function registerTools(server, client, env = process.env) {
     "snap_list_creatives",
     {
       description: "List creatives in an ad account (read-only), so you can see what can be reused. Reads every page; a note says when the list is cut.",
-      shape: { ad_account_id: id().optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(50) },
+      shape: { ad_account_id: id().optional(), name_contains: nameFilter, limit: z.number().int().min(1).max(500).default(50), ...PAGING },
     },
-    async ({ ad_account_id, name_contains, limit }) => {
+    async ({ ad_account_id, name_contains, limit, offset, response_format }) => {
       const { items, complete, reason } = await client.listPaged(`/adaccounts/${account(ad_account_id)}/creatives`, "creative");
       const needle = name_contains?.toLowerCase();
       const rows = items.filter((c) => !needle || String(c.name ?? "").toLowerCase().includes(needle)).map((c) => ({ id: c.id, name: c.name, type: c.type, render_type: c.render_type, status: c.status, updated_at: c.updated_at }));
       const notes = [];
       if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more creatives exist that are not included.`);
-      if (rows.length > limit) notes.push(`${rows.length} creatives found; showing the first ${limit}. Raise limit (max 500).`);
-      return new ListResult(rows.slice(0, limit), notes);
+      if (rows.length > limit && offset === 0) notes.push(`${rows.length} creatives found; showing the first ${limit}. Raise limit (max 500), or repeat with offset=${limit} for the next rows.`);
+      return new ListResult(rows, notes, { limit, offset, incomplete: !complete, format: response_format });
     },
   );
 
@@ -447,10 +484,11 @@ export function registerTools(server, client, env = process.env) {
         ready_only: z.boolean().default(true),
         name_contains: z.string().min(1).max(100).optional(),
         limit: z.number().int().min(1).max(500).default(50),
+        ...PAGING,
         ad_account_id: id().optional(),
       },
     },
-    async ({ type, ready_only, name_contains, limit, ad_account_id }) => {
+    async ({ type, ready_only, name_contains, limit, ad_account_id, offset, response_format }) => {
       const { items, complete, reason } = await client.listPaged(`/adaccounts/${account(ad_account_id)}/media`, "media");
       const needle = name_contains?.toLowerCase();
       const rows = items
@@ -459,8 +497,8 @@ export function registerTools(server, client, env = process.env) {
         .map((m) => ({ id: m.id, name: m.name, type: m.type, media_status: m.media_status, duration_in_seconds: m.duration_in_seconds, video_metadata: m.video_metadata, image_metadata: m.image_metadata, created_at: m.created_at }));
       const notes = [];
       if (!complete) notes.push(`The list is INCOMPLETE (${reason}); more media exist that are not included.`);
-      if (rows.length > limit) notes.push(`${rows.length} media match; showing the newest ${limit}. Raise limit (max 500) or narrow the filters.`);
-      return new ListResult(rows.slice(0, limit), notes);
+      if (rows.length > limit && offset === 0) notes.push(`${rows.length} media match; showing the newest ${limit}. Raise limit (max 500) or narrow the filters, or repeat with offset=${limit} for the next rows.`);
+      return new ListResult(rows, notes, { limit, offset, incomplete: !complete, format: response_format });
     },
   );
 
@@ -491,23 +529,23 @@ export function registerTools(server, client, env = process.env) {
     "snap_list_segments",
     {
       description: "List audience segments (customer lists, pixel, engagement, lookalike) with size and status, largest first (read-only).",
-      shape: { source_type: z.enum(["FIRST_PARTY", "PIXEL", "ENGAGEMENT", "LOOKALIKE"]).optional(), min_size: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(300).default(60), ad_account_id: id().optional() },
+      shape: { source_type: z.enum(["FIRST_PARTY", "PIXEL", "ENGAGEMENT", "LOOKALIKE"]).optional(), min_size: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(300).default(60), ad_account_id: id().optional(), ...PAGING },
     },
-    async ({ source_type, min_size, limit, ad_account_id }) => (await listSegments(client, account(ad_account_id), { sourceType: source_type, minSize: min_size })).slice(0, limit),
+    async ({ source_type, min_size, limit, ad_account_id, offset, response_format }) => new ListResult(await listSegments(client, account(ad_account_id), { sourceType: source_type, minSize: min_size }), [], { limit, offset, format: response_format }),
   );
 
-  read("snap_list_pixels", { description: "List the Snap pixels of the ad account (read-only).", shape: { ad_account_id: id().optional() } }, ({ ad_account_id }) => listPixels(client, account(ad_account_id)));
+  read("snap_list_pixels", { description: "List the Snap pixels of the ad account (read-only).", shape: { ad_account_id: id().optional(), limit: z.number().int().min(1).max(500).default(100), ...PAGING } }, async ({ ad_account_id, limit, offset, response_format }) => new ListResult(await listPixels(client, account(ad_account_id)), [], { limit, offset, format: response_format }));
 
   read(
     "snap_list_catalogs",
-    { description: "List product catalogs of the organization (read-only). Organization id defaults to the ad account's organization.", shape: { organization_id: id().optional() } },
-    async ({ organization_id }) => {
+    { description: "List product catalogs of the organization (read-only). Organization id defaults to the ad account's organization.", shape: { organization_id: id().optional(), limit: z.number().int().min(1).max(500).default(100), ...PAGING } },
+    async ({ organization_id, limit, offset, response_format }) => {
       const org = organization_id ?? (await client.request("GET", `/adaccounts/${account()}`)).adaccounts[0].adaccount.organization_id;
-      return listCatalogs(client, org);
+      return new ListResult(await listCatalogs(client, org), [], { limit, offset, format: response_format });
     },
   );
 
-  read("snap_list_product_sets", { description: "List product sets of a catalog (read-only).", shape: { catalog_id: id() } }, ({ catalog_id }) => listProductSets(client, catalog_id));
+  read("snap_list_product_sets", { description: "List product sets of a catalog (read-only).", shape: { catalog_id: id(), limit: z.number().int().min(1).max(500).default(100), ...PAGING } }, async ({ catalog_id, limit, offset, response_format }) => new ListResult(await listProductSets(client, catalog_id), [], { limit, offset, format: response_format }));
 
   // A catalog belongs to an organization, not to an ad account. Only catalogs of the configured account's organization are used.
   const accountOrg = async () => {
@@ -529,11 +567,11 @@ export function registerTools(server, client, env = process.env) {
 
   read(
     "snap_list_dynamic_templates",
-    { description: "List the ad account's dynamic templates (how products are laid out in catalog ads), read-only. Use an id as dynamic_template_id in snap_create_creative.", shape: { limit: z.number().int().min(1).max(200).default(50) } },
-    async ({ limit }) => {
+    { description: "List the ad account's dynamic templates (how products are laid out in catalog ads), read-only. Use an id as dynamic_template_id in snap_create_creative.", shape: { limit: z.number().int().min(1).max(200).default(50), ...PAGING } },
+    async ({ limit, offset, response_format }) => {
       const { items, complete } = await client.listPaged(`/adaccounts/${account()}/dynamic_templates`, "dynamic_template");
       const rows = items.map((t) => ({ id: t.id, name: t.name, layout: t.layout, text_fields: t.text_fields }));
-      return new ListResult(rows.slice(0, limit), [...(complete ? [] : ["The list is INCOMPLETE; more templates exist that are not included."]), ...(rows.length > limit ? [`${rows.length} templates; showing the first ${limit}.`] : [])]);
+      return new ListResult(rows, [...(complete ? [] : ["The list is INCOMPLETE; more templates exist that are not included."]), ...(rows.length > limit && offset === 0 ? [`${rows.length} templates; showing the first ${limit}.`] : [])], { limit, offset, incomplete: !complete, format: response_format });
     },
   );
 
@@ -1036,6 +1074,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_claim_ad_code",
     {
+      destructive: true,
       description: "Claim a creator's ad code (adcode_<uuid>) into the ad account. ONE-WAY: the code is single-use and cannot be unclaimed. Previews (format check only, nothing sent) unless confirm=true.",
       shape: { ad_code: z.string(), profile_id: id().optional().describe("Brand profile id; defaults to SNAP_BRAND_PROFILE_ID") },
       repeatGuard: true,
@@ -1305,6 +1344,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_frequency_cap",
     {
+      destructive: true,
       description: "Limit how often one person sees an ad squad's ads: at most `count` impressions per `every` HOURS or DAYS (up to 30 days), or clear the cap. A cap lowers repetition (and so frequency), and may lower delivery. Undo works when a cap existed before. Previews unless confirm=true.",
       shape: { adsquad_id: id(), count: z.number().int().min(1).max(100).optional(), every: z.number().int().min(1).max(720).optional(), unit: z.enum(CAP_UNITS).default("DAYS"), clear: z.boolean().default(false) },
     },
@@ -1314,6 +1354,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_ad_schedule",
     {
+      destructive: true,
       description: "Choose which hours of which days an ad squad's ads run (hours 0-23 in each viewer's local time), or run every hour. Snap allows this only on LIFETIME-budget ad squads, so it is refused on daily-budget ones. A narrow schedule lowers delivery. Undo works when a schedule existed before. Previews unless confirm=true.",
       shape: {
         adsquad_id: id(),
@@ -1337,6 +1378,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_placement",
     {
+      destructive: true,
       description: `Choose where on Snapchat an ad squad's ads may appear: automatic (everywhere) or custom positions (${PLACEMENT_POSITIONS.join(", ")}; CHAT_FEED must come with INTERSTITIAL_CONTENT or INTERSTITIAL_USER). Fewer placements usually mean less reach and a higher cost. Refused on ad squads that use content inclusion or exclusion lists. Undo works when a placement was set before. Previews unless confirm=true.`,
       shape: { adsquad_id: id(), mode: z.enum(["automatic", "custom"]), positions: z.array(z.enum(PLACEMENT_POSITIONS)).max(7).optional() },
     },
@@ -1394,6 +1436,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ file_path, name }) => {
+      assertFileAllowed(file_path, policy.mediaDir);
       const info = inspectMediaFile(file_path);
       const adAccountId = account();
       return {
@@ -1659,6 +1702,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ file_path, kind, name, column, default_country_code }) => {
+      assertFileAllowed(file_path, policy.mediaDir);
       const data = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code ?? policy.defaultPhoneCode ?? undefined });
       const summary = { column_used: data.column, rows: data.rows, valid_unique: data.valid, invalid_skipped: data.invalid, duplicates_removed: data.duplicates };
       if (!data.valid) throw new Error(`No valid ${kind} values found. ${JSON.stringify(summary)}`);
