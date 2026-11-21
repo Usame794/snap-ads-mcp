@@ -7,13 +7,13 @@
     "url": "https://github.com/Usame794/snapchat-ads-mcp",
     "source": "github"
   },
-  "version": "0.9.8",
+  "version": "0.9.9",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "ads-mcp-for-snapchat",
-      "version": "0.9.8",
+      "version": "0.9.9",
       "transport": {
         "type": "stdio"
       },

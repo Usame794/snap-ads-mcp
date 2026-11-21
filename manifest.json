@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "ads-mcp-for-snapchat",
   "display_name": "Ads MCP for Snapchat",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "long_description": "Unofficial. Runs on your computer. Claude can create and change campaigns: every change is previewed first and applied only with that preview's approval token (Claude holds the token, so turn on \\\"Ask me before every change\\\" if you want to be asked yourself), everything it creates starts paused, and your daily budget limit always applies; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
   "author": {
