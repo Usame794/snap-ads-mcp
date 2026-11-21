@@ -7,7 +7,7 @@ const OLD = ["snap_set_status_bulk", "snap_bulk_rename", "snap_bulk_set_schedule
 test("old tool names are hidden by default and the merged tools take their place", async () => {
   const t = await setup();
   const names = (await t.client.listTools()).tools.map((x) => x.name);
-  assert.equal(names.length, 76);
+  assert.equal(names.length, 78);
   for (const old of OLD) assert.ok(!names.includes(old), `${old} is hidden`);
   for (const merged of ["snap_set_status", "snap_rename", "snap_set_schedule", "snap_exclude_segments", "snap_set_daily_budget", "snap_report"]) assert.ok(names.includes(merged), merged);
 });
@@ -15,7 +15,7 @@ test("old tool names are hidden by default and the merged tools take their place
 test("SNAP_LEGACY_TOOLS=1 shows the old names as deprecated aliases that point to the new tool", async () => {
   const t = await setup({ env: { SNAP_LEGACY_TOOLS: "1" } });
   const tools = (await t.client.listTools()).tools;
-  assert.equal(tools.length, 85);
+  assert.equal(tools.length, 87);
   for (const old of OLD) assert.match(tools.find((x) => x.name === old).description, /^DEPRECATED, use snap_/, old);
 });
 
@@ -85,7 +85,7 @@ test("core: every core tool exists, the set is about 40, and it covers reading, 
   const all = await setup();
   const names = new Set((await all.client.listTools()).tools.map((x) => x.name));
   assert.deepEqual(CORE_TOOLS.filter((n) => !names.has(n)), [], "every core tool exists");
-  assert.ok(CORE_TOOLS.length >= 30 && CORE_TOOLS.length <= 45, `${CORE_TOOLS.length} core tools`);
+  assert.ok(CORE_TOOLS.length >= 30 && CORE_TOOLS.length <= 50, `${CORE_TOOLS.length} core tools`);
   for (const need of ["snap_ping", "snap_report", "snap_health_check", "snap_create_campaign", "snap_create_adsquad", "snap_create_creative", "snap_create_ad", "snap_upload_media", "snap_set_status", "snap_set_daily_budget", "snap_undo"]) assert.ok(CORE_TOOLS.includes(need), need);
   const core = await setup({ env: { SNAP_TOOLSETS: "core" } });
   assert.deepEqual((await core.client.listTools()).tools.map((x) => x.name).sort(), [...CORE_TOOLS].sort());
@@ -97,7 +97,7 @@ test("core can be combined with a group, and 'all' shows everything", async () =
   assert.ok(names.includes("snap_set_status") && names.includes("snap_billing_check"));
   assert.ok(!names.includes("snap_set_frequency_cap"));
   const all = await setup({ env: { SNAP_TOOLSETS: "all" } });
-  assert.equal((await all.client.listTools()).tools.length, 76);
+  assert.equal((await all.client.listTools()).tools.length, 78);
 });
 
 test("the Desktop extension starts with the core tool set and says how to see everything", async () => {

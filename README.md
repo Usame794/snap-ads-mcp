@@ -5,7 +5,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 > **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool can change real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Check Snap's developer terms for your own use. Review every preview before approving.
 
 ## Get started in 2 minutes
-**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account. In the Desktop extension, changes are **allowed from the start** (Read-only is off by default): each one is previewed and needs your approval, everything created starts paused, and the daily budget limit starts at 500 (change it in the extension's settings). Switch Read-only on there if you only want to look. It also starts with the **core** tool set (44 everyday tools); type `all` in its Tool set field to see all 76.
+**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account. In the Desktop extension, changes are **allowed from the start** (Read-only is off by default): each one is previewed and needs your approval, everything created starts paused, and the daily budget limit starts at 500 (change it in the extension's settings). Switch Read-only on there if you only want to look. It also starts with the **core** tool set (46 everyday tools); type `all` in its Tool set field to see all 78.
 
 **Claude Code, Cursor, VS Code or a terminal:**
 ```bash
@@ -119,7 +119,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_BROKER_URL` | the maintainer's login service (`off` turns the shared login off) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
 | `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
-| `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `core` (about 40 everyday tools: read, check and launch campaigns), or `setup, read, reports, checks, changes, create` (comma-separated, can be combined with core). The Claude Desktop extension starts with `core`; type `all` in its Tool set field to see every tool. Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
+| `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `core` (46 everyday tools: read, check and launch campaigns), or `setup, read, reports, checks, changes, create` (comma-separated, can be combined with core). The Claude Desktop extension starts with `core`; type `all` in its Tool set field to see every tool. Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
 | `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
 | `SNAP_APPROVAL_TTL_SECONDS` | 600 | Lifetime of an approval token |
 | `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
@@ -171,6 +171,7 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_portfolio_summary` | read: all your ad accounts side by side (yesterday and last 7 days, what needs attention, totals per currency). Reads the settings files you list in `SNAP_PORTFOLIO_FILES`; the AI app cannot choose files. |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
+| `snap_dashboard`, `snap_campaign_board` | read: interactive cards (see "Interactive cards" below): an account dashboard (spend, ROAS, purchases, pacing, 7/14/30 days) and a campaign list with Pause and Resume buttons. Without card support the same numbers come back as data |
 | `snap_report` | read: performance reports. `view` = `table` (ROAS, CPA, swipe rate, frequency by ad squad or ad; the default), `daily` (day by day, up to 31 days), `hourly` (by local hour of the day, last 1-7 days, best and worst hours), `compare` (two time windows side by side) or `audience` (by country, gender, age, region, dma or make) |
 | `snap_health_check` | read: audits every active squad for missing buyer exclusion, high frequency, low swipe rate, low ROAS, spend with no purchases, paused parents |
 | `snap_review_issues` | read: rejected / pending ads with Snap's reasons |
@@ -204,6 +205,14 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_create_story_creative` | Story Ad: 1-20 existing Snaps in a fixed order, with an optional tile for the Stories tab |
 | `snap_create_collection_creative` | Collection Ad: a main image or video with 4-20 product tiles, each opening its own page |
 | `snap_influencer_ad` | the whole influencer flow in one step: claim, wait for media, creative, paused ad |
+
+## Interactive cards (MCP Apps)
+In AI apps that support [MCP Apps](https://modelcontextprotocol.io) (for example Claude), some tools show a small interactive card inside the chat instead of only text:
+- **`snap_dashboard`**: spend, ROAS, purchases, cost per purchase and swipe rate for 7, 14 or 30 days (switch with the buttons), spend by day, and this month's pacing.
+- **`snap_campaign_board`**: every campaign with its 7-day spend and ROAS. **Pause** and **Resume** buttons first show what would change, and nothing happens until you press **Confirm**.
+- **Preview card**: every tool that previews a change (create, budget, status, schedule and so on) shows its preview as a card with an **Apply** button that uses the approval token of that exact preview.
+
+How they stay safe: the buttons call the same tools with the same previews, approval tokens, spend limits and read-only setting as before; with `SNAP_READ_ONLY` on, Confirm and Apply stay disabled. The cards have no network access, show names from your account as plain text (never as code), and follow the app's light or dark theme. In apps without card support nothing changes: the same answers arrive as text and data.
 
 ## Examples, permissions and limits
 **Things to ask your assistant** (each names the tool it will use):

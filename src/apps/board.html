@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaigns</title>
+<style>
+:root{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb}
+@media (prefers-color-scheme:dark){:root{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff}}
+:root[data-theme=light]{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb}
+:root[data-theme=dark]{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff}
+:root{--bg:var(--color-background-primary,var(--fb-bg));--bg2:var(--color-background-secondary,var(--fb-bg2));--text:var(--color-text-primary,var(--fb-text));--muted:var(--color-text-secondary,var(--fb-muted));--border:var(--color-border-primary,var(--fb-border));--good:var(--color-text-success,var(--fb-good));--bad:var(--color-text-danger,var(--fb-bad));--warn:var(--color-text-warning,var(--fb-warn))}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+h1{font-size:18px;margin:0}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sub{color:var(--muted);font-size:12px}
+.seg{display:flex;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.seg button{min-height:44px;min-width:56px;padding:0 14px;border:0;background:var(--bg);color:var(--text);font:inherit;cursor:pointer}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+.row{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.name{font-weight:650;overflow-wrap:anywhere}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border);margin-right:6px}
+.pill.on{color:var(--good);border-color:var(--good)}
+.meta{color:var(--muted);font-size:12px;margin-top:2px}
+button.act{min-height:44px;min-width:96px;padding:0 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;cursor:pointer}
+button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.panel{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+.panel dl{margin:0 0 8px;display:grid;grid-template-columns:max-content 1fr;gap:2px 12px}
+.panel dt{color:var(--muted)}.panel dd{margin:0;overflow-wrap:anywhere}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.warn{color:var(--warn)}.err{color:var(--bad)}.ok{color:var(--good)}
+.skeleton{background:linear-gradient(90deg,var(--bg2),var(--border),var(--bg2));background-size:200% 100%;animation:sk 1.2s linear infinite;border-radius:12px;min-height:72px;margin-bottom:10px}
+@keyframes sk{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Campaigns</h1><div class="sub" id="sub">Loading...</div></div>
+    <div class="seg" role="group" aria-label="Show" id="seg"></div>
+  </header>
+  <section id="list" aria-live="polite"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></section>
+  <p class="sub warn" id="warn" hidden></p>
+</main>
+<!--BRIDGE-->
+<script>
+(function () {
+  const { el, num } = window.snapApp;
+  const $ = (id) => document.getElementById(id);
+  const state = { data: null, filter: "ALL", open: null };
+
+  function seg() {
+    const s = $("seg");
+    s.textContent = "";
+    for (const [key, label] of [["ALL", "All"], ["ACTIVE", "Active"], ["PAUSED", "Paused"]]) s.append(el("button", { type: "button", "aria-pressed": String(state.filter === key), onclick: () => { state.filter = key; state.open = null; render(); } }, label));
+  }
+
+  function render() {
+    const d = state.data;
+    seg();
+    const list = $("list");
+    list.textContent = "";
+    if (!d) return;
+    const cur = d.account && d.account.currency ? " " + d.account.currency : "";
+    $("sub").textContent = d.summary;
+    const rows = d.campaigns.filter((c) => state.filter === "ALL" || c.status === state.filter);
+    if (!rows.length) list.append(el("div", { class: "sub" }, "No campaigns to show."));
+    for (const c of rows) list.append(row(c, cur));
+    if (d.has_more) list.append(el("div", { class: "sub" }, "Showing " + d.campaigns.length + " of " + d.total_campaigns + ". Ask for the rest in the chat."));
+    const w = $("warn");
+    w.hidden = !(d.warnings && d.warnings.length);
+    w.textContent = (d.warnings || []).join(" ");
+    window.snapApp.resize();
+  }
+
+  function row(c, cur) {
+    const active = c.status === "ACTIVE";
+    const target = active ? "PAUSED" : "ACTIVE";
+    const box = el("div", { class: "row" });
+    box.append(el("div", { class: "top" },
+      el("div", null, el("div", { class: "name" }, c.name), el("div", { class: "meta" }, el("span", { class: "pill" + (active ? " on" : "") }, c.status), "7-day spend " + num(c.spend_7d) + cur + " | ROAS " + num(c.roas_7d) + (c.active_daily_budget != null ? " | active daily budgets " + num(c.active_daily_budget) + cur : ""))),
+      el("button", { class: "act", type: "button", onclick: () => ask(c, target, box) }, active ? "Pause" : "Resume")));
+    if (state.open === c.id && c._panel) box.append(c._panel);
+    return box;
+  }
+
+  async function ask(c, status, box) {
+    state.open = c.id;
+    const panel = el("div", { class: "panel" }, el("div", { class: "sub" }, "Checking what would change..."));
+    c._panel = panel;
+    box.querySelector(".panel") && box.querySelector(".panel").remove();
+    box.append(panel);
+    try {
+      const r = await window.snapApp.call("snap_set_status", { entity: "campaign", id: c.id, status });
+      const text = window.snapApp.textOf(r);
+      if (r.isError) { panel.textContent = ""; panel.append(el("div", { class: "err" }, text)); return; }
+      const p = window.snapApp.dataOf(r) || {};
+      panel.textContent = "";
+      const pv = p.preview || {};
+      const rows = [["Change", c.name + ": " + c.status + " to " + status]];
+      if (pv.daily_budget_that_would_start_delivering !== undefined) rows.push(["Daily budget that would start spending", num(pv.daily_budget_that_would_start_delivering) + (p.ad_account ? "" : "")]);
+      if (pv.note) rows.push(["Note", pv.note]);
+      const dl = el("dl", null, rows.map(([k, v]) => [el("dt", null, k), el("dd", null, v)]));
+      panel.append(dl);
+      if (p.read_only) panel.append(el("div", { class: "warn" }, p.read_only));
+      if (p.budget_warning) panel.append(el("div", { class: "warn" }, p.budget_warning.message));
+      if (p.duplicate_warning) panel.append(el("div", { class: "warn" }, p.duplicate_warning));
+      const confirm = el("button", { class: "act primary", type: "button", disabled: !p.approval_token || !!p.read_only, onclick: () => apply(c, status, p.approval_token, panel, confirm, cancel) }, "Confirm " + (status === "PAUSED" ? "pause" : "resume"));
+      const cancel = el("button", { class: "act", type: "button", onclick: () => { state.open = null; c._panel = null; render(); } }, "Cancel");
+      panel.append(el("div", { class: "btns" }, confirm, cancel));
+      window.snapApp.resize();
+    } catch (e) {
+      panel.textContent = "";
+      panel.append(el("div", { class: "err" }, "Could not preview: " + e.message));
+    }
+  }
+
+  async function apply(c, status, token, panel, confirm, cancel) {
+    confirm.disabled = true;
+    cancel.disabled = true;
+    try {
+      const r = await window.snapApp.call("snap_set_status", { entity: "campaign", id: c.id, status, confirm: true, approval_token: token });
+      if (r.isError) { panel.append(el("div", { class: "err" }, window.snapApp.textOf(r))); cancel.disabled = false; return; }
+      c.status = status;
+      state.open = null;
+      c._panel = null;
+      render();
+    } catch (e) {
+      panel.append(el("div", { class: "err" }, "Could not apply: " + e.message));
+      cancel.disabled = false;
+    }
+  }
+
+  seg();
+  window.snapApp.connect({
+    "ui/notifications/tool-result": (r) => {
+      if (r && r.isError) { $("sub").textContent = window.snapApp.textOf(r); return; }
+      state.data = window.snapApp.dataOf(r);
+      render();
+    },
+    error: (e) => { $("sub").textContent = "Not connected to the chat app: " + e.message; },
+  });
+})();
+</script>
+</body>
+</html>

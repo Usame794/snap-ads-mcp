@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview of a change</title>
+<style>
+:root{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb}
+@media (prefers-color-scheme:dark){:root{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff}}
+:root[data-theme=light]{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb}
+:root[data-theme=dark]{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff}
+:root{--bg:var(--color-background-primary,var(--fb-bg));--bg2:var(--color-background-secondary,var(--fb-bg2));--text:var(--color-text-primary,var(--fb-text));--muted:var(--color-text-secondary,var(--fb-muted));--border:var(--color-border-primary,var(--fb-border));--good:var(--color-text-success,var(--fb-good));--bad:var(--color-text-danger,var(--fb-bad));--warn:var(--color-text-warning,var(--fb-warn))}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px}
+h1{font-size:16px;margin:0 0 2px}.sub{color:var(--muted);font-size:12px}
+.badge{display:inline-block;padding:1px 10px;border-radius:999px;font-size:11px;border:1px solid var(--warn);color:var(--warn);margin-bottom:8px}
+.badge.done{border-color:var(--good);color:var(--good)}
+dl{margin:10px 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}
+dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.4 ui-monospace,Menlo,monospace}
+.warn{color:var(--warn);margin:6px 0}.err{color:var(--bad);margin:6px 0}.ok{color:var(--good);margin:6px 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{min-height:44px;min-width:110px;padding:0 18px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.skeleton{background:linear-gradient(90deg,var(--bg2),var(--border),var(--bg2));background-size:200% 100%;animation:sk 1.2s linear infinite;border-radius:12px;min-height:96px}
+@keyframes sk{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+</style>
+</head>
+<body>
+<main id="app"><div class="skeleton"></div></main>
+<!--BRIDGE-->
+<script>
+(function () {
+  const { el } = window.snapApp;
+  const app = document.getElementById("app");
+  const state = { input: null, tool: null, result: null, applied: null };
+
+  const show = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v, null, 1) : String(v));
+
+  function render() {
+    app.textContent = "";
+    const r = state.result;
+    if (!r) return;
+    const name = (state.tool || "change").replace(/^snap_/, "").replace(/_/g, " ");
+    const done = r.applied === true || state.applied;
+    const card = el("div", { class: "card" });
+    card.append(el("span", { class: "badge" + (done ? " done" : "") }, done ? "Applied" : "Preview: nothing has changed yet"), el("h1", null, name));
+    const skip = new Set(["approval_token", "approval_expires_in_seconds", "applied", "dry_run", "ad_account", "read_only", "budget_warning", "duplicate_warning", "spend_impact"]);
+    const rows = Object.entries(r).filter(([k, v]) => !skip.has(k) && v !== undefined);
+    // A list of {name, change} (what the change would do to each item) reads better as lines than as raw data.
+    const lines = (v) => Array.isArray(v) && v.length && v.every((x) => x && typeof x === "object" && typeof x.change === "string");
+    const value = (v) => (lines(v) ? el("div", null, v.map((x) => el("div", null, (x.name ? x.name + ": " : "") + x.change))) : v !== null && typeof v === "object" ? el("pre", null, show(v)) : show(v));
+    const shown = rows.filter(([, v]) => !(Array.isArray(v) && v.length === 0));
+    if (shown.length) card.append(el("dl", null, shown.map(([k, v]) => [el("dt", null, k.replace(/_/g, " ")), el("dd", null, value(v))])));
+    if (r.spend_impact) card.append(el("div", { class: "warn" }, "Spend impact: " + show(r.spend_impact)));
+    if (r.budget_warning) card.append(el("div", { class: "warn" }, r.budget_warning.message));
+    if (r.duplicate_warning) card.append(el("div", { class: "warn" }, r.duplicate_warning));
+    if (r.read_only) card.append(el("div", { class: "warn" }, r.read_only));
+    if (state.applied) card.append(el("div", { class: state.applied.isError ? "err" : "ok" }, state.applied.text));
+    if (!done) {
+      const canApply = !!r.approval_token && !r.read_only && !!state.input && !!state.tool;
+      const apply = el("button", { class: "primary", type: "button", disabled: !canApply, onclick: () => run(apply) }, "Apply");
+      card.append(el("div", { class: "btns" }, apply));
+      if (!canApply) card.append(el("div", { class: "sub" }, r.read_only ? "Turn read-only off in the settings to apply changes." : "To apply this, ask in the chat."));
+    }
+    app.append(card);
+    window.snapApp.resize();
+  }
+
+  async function run(button) {
+    button.disabled = true;
+    try {
+      const res = await window.snapApp.call(state.tool, Object.assign({}, state.input, { confirm: true, approval_token: state.result.approval_token }));
+      state.applied = { isError: !!res.isError, text: res.isError ? window.snapApp.textOf(res) : "Applied." };
+      if (!res.isError) { const d = window.snapApp.dataOf(res); if (d) state.result = Object.assign({}, state.result, d, { applied: true }); }
+    } catch (e) {
+      state.applied = { isError: true, text: "Could not apply: " + e.message };
+    }
+    render();
+  }
+
+  window.snapApp.connect({
+    ready: (ctx) => { state.tool = ctx.toolInfo && ctx.toolInfo.tool && ctx.toolInfo.tool.name; render(); },
+    "ui/notifications/tool-input": (p) => { state.input = (p && p.arguments) || {}; },
+    "ui/notifications/tool-result": (res) => {
+      if (res && res.isError) { app.textContent = ""; app.append(el("div", { class: "card" }, el("div", { class: "err" }, window.snapApp.textOf(res)))); return; }
+      state.result = window.snapApp.dataOf(res);
+      if (!state.tool && state.result && state.result.tool) state.tool = state.result.tool;
+      render();
+    },
+    error: (e) => { app.textContent = ""; app.append(el("div", { class: "card err" }, "Not connected to the chat app: " + e.message)); },
+  });
+})();
+</script>
+</body>
+</html>
