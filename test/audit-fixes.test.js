@@ -238,3 +238,23 @@ test("F6: with human approval on, switching the account asks the person; a refus
   assert.ok(!ok.error, ok.error);
   assert.match(ok.saved, /SNAP_AD_ACCOUNT_ID=acc-2/);
 });
+
+import { loadPolicy } from "../src/policy.js";
+
+test("F7: the Desktop extension has an optional 'Ask me before every change' setting that maps to human approval", () => {
+  const m = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
+  assert.equal(m.user_config.human_approval.type, "boolean");
+  assert.notEqual(m.user_config.human_approval.required, true, "a new required setting would stop upgraded installs from starting");
+  assert.equal(m.server.mcp_config.env.SNAP_HUMAN_APPROVAL, "${user_config.human_approval}");
+  const words = `${m.long_description} ${m.user_config.read_only.description}`;
+  assert.doesNotMatch(words, /needs your approval/, "the text no longer claims a person approves every change when that is off");
+  assert.match(m.long_description, /Ask me before every change/);
+});
+
+test("F7: the extension's true and false values mean elicit and off", () => {
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "true" }).humanApproval, "elicit");
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "false" }).humanApproval, "off");
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "elicit" }).humanApproval, "elicit");
+  assert.equal(loadPolicy({}).humanApproval, "off");
+  assert.throws(() => loadPolicy({ SNAP_HUMAN_APPROVAL: "maybe" }), /SNAP_HUMAN_APPROVAL/);
+});
