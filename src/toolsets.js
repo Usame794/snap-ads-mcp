@@ -3,8 +3,8 @@
 // only hides tools; it never makes a tool less safe.
 export const TOOLSETS = {
   setup: ["snap_ping", "snap_connect", "snap_change_log"],
-  read: ["snap_list_campaigns", "snap_list_adsquads", "snap_list_ads", "snap_list_creatives", "snap_list_media", "snap_list_segments", "snap_list_pixels", "snap_list_catalogs", "snap_list_product_sets", "snap_list_dynamic_templates", "snap_get_entity", "snap_get_media", "snap_targeting_options", "snap_api_get"],
-  reports: ["snap_get_stats", "snap_report", "snap_report_async_start", "snap_report_async_status", "snap_report_async_download", "snap_funnel", "snap_blended_roas", "snap_spend_pacing", "snap_creative_compare", "snap_portfolio_summary"],
+  read: ["snap_campaign_board", "snap_list_campaigns", "snap_list_adsquads", "snap_list_ads", "snap_list_creatives", "snap_list_media", "snap_list_segments", "snap_list_pixels", "snap_list_catalogs", "snap_list_product_sets", "snap_list_dynamic_templates", "snap_get_entity", "snap_get_media", "snap_targeting_options", "snap_api_get"],
+  reports: ["snap_dashboard", "snap_get_stats", "snap_report", "snap_report_async_start", "snap_report_async_status", "snap_report_async_download", "snap_funnel", "snap_blended_roas", "snap_spend_pacing", "snap_creative_compare", "snap_portfolio_summary"],
   checks: ["snap_health_check", "snap_review_issues", "snap_pixel_health", "snap_creative_fatigue", "snap_anomaly_check", "snap_check_landing_pages", "snap_billing_check", "snap_unused_media", "snap_audience_health", "snap_catalog_feed_status", "snap_capi_status", "snap_budget_advice", "snap_audience_size", "snap_audience_insights", "snap_competitor_ads", "snap_ad_preview"],
   changes: ["snap_set_status", "snap_set_daily_budget", "snap_set_bid", "snap_set_targeting", "snap_set_schedule", "snap_set_frequency_cap", "snap_set_ad_schedule", "snap_set_bid_strategy", "snap_set_placement", "snap_exclude_segments", "snap_rename", "snap_undo", "snap_delete"],
   create: ["snap_create_campaign", "snap_create_adsquad", "snap_create_creative", "snap_create_ad", "snap_create_story_creative", "snap_create_collection_creative", "snap_create_product_set", "snap_create_dynamic_template", "snap_create_lookalike", "snap_create_pixel_audience", "snap_upload_media", "snap_upload_customer_list", "snap_copy_campaign", "snap_copy_adsquad", "snap_clone_ad", "snap_clone_creative", "snap_claim_ad_code", "snap_influencer_ad", "snap_influencer_batch", "snap_capi_test_event"],
@@ -19,7 +19,7 @@ export const toolsetOf = (name) => OF.get(name) ?? OF.get(LEGACY_ALIASES[name]) 
 // Everything else stays available: SNAP_TOOLSETS=core,reports adds a group, and the default (all) shows every tool.
 export const CORE_TOOLS = [
   "snap_ping", "snap_connect", "snap_list_campaigns", "snap_list_adsquads", "snap_list_ads", "snap_list_creatives", "snap_list_media", "snap_list_segments", "snap_get_entity",
-  "snap_report", "snap_get_stats", "snap_spend_pacing", "snap_health_check", "snap_review_issues", "snap_anomaly_check", "snap_budget_advice", "snap_creative_fatigue",
+  "snap_dashboard", "snap_campaign_board", "snap_report", "snap_get_stats", "snap_spend_pacing", "snap_health_check", "snap_review_issues", "snap_anomaly_check", "snap_budget_advice", "snap_creative_fatigue",
   "snap_set_status", "snap_set_daily_budget", "snap_set_bid", "snap_set_targeting", "snap_set_schedule", "snap_rename", "snap_exclude_segments", "snap_undo", "snap_change_log",
   "snap_create_campaign", "snap_create_adsquad", "snap_create_creative", "snap_create_ad", "snap_upload_media", "snap_copy_campaign", "snap_copy_adsquad", "snap_clone_ad",
   "snap_targeting_options", "snap_ad_preview", "snap_delete",

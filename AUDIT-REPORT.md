@@ -195,3 +195,17 @@ Not done yet (waiting for your decision, or optional): A2/A3/A4 consolidation (a
 | A4 | PARTIAL | 85 tools became 76. A `core` set of 44 everyday tools is the Desktop extension default; `all` shows everything. The count is not near 40 because the remaining tools do different jobs. |
 | A6 | NOT DONE | Noun-first names (for example `snap_report_async_start`, `snap_audience_size`) were left as they are: all are `snap_` + snake_case, and renaming them would cost users more than it helps. |
 | Compatibility | n/a | Old names are hidden unless `SNAP_LEGACY_TOOLS=1`; then they appear as deprecated aliases that point to the new tool. |
+
+### Round four: MCP Apps (approved with "can we add interactive tools")
+| ID | New status | What changed |
+|---|---|---|
+| G1 | PASS | `snap_dashboard` and `snap_campaign_board` carry `_meta.ui.resourceUri` (and the older `ui/resourceUri` key) pointing to `ui://` pages served as `text/html;profile=mcp-app`; every tool that previews a change shows a preview card. |
+| G2 | PASS | Every card tool still returns a text summary and structured data. |
+| G3 | PASS | Cards are small and inline; the dashboard has four to five numbers and a chart, the board is a short list. No full-screen mode is requested. |
+| G4 | PASS | The pages use the host's style variables, with light and dark fallbacks and the host's theme. |
+| G5 | PASS | No network access is declared (empty CSP lists) and none is used; the shared script is inlined, so there are no external files. |
+| G6 | PASS | Tested at 320 px wide in dark mode (no sideways scrolling), 44 px tap targets, no dropdown menus, skeleton loading states. |
+| G7 | PASS | Cards only use buttons and switches; text entry stays in the chat. |
+| G8 | PASS | Pause, Resume and Apply call the same tools with the same preview, approval token, limits and read-only rule (section E). |
+
+Tested in a real browser (Chromium) with a fake chat app speaking the MCP Apps protocol and the real server behind it. **Not tested in Claude Desktop itself**: whether it shows the cards for a local extension has to be checked there.

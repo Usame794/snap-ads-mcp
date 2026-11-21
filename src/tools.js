@@ -18,6 +18,8 @@ import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativePr
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { assertFileAllowed } from "./media-dir.js";
 import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
+import { APP_TOOLS, APP_URIS, registerApps, uiMeta } from "./apps.js";
+import { boardData, dashboardData } from "./dashboard.js";
 import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
@@ -112,6 +114,9 @@ export function registerTools(server, client, env = process.env) {
     const next = { ...config };
     const hint = TOOL_HINTS[name];
     if (hint && next.description && !next.description.includes(hint)) next.description = `${next.description} ${hint}`;
+    // Cards (MCP Apps): the dashboard and board tools show their own card; every tool that previews a change shows the preview card.
+    const card = APP_TOOLS[name] ?? (next.inputSchema?.shape?.confirm ? APP_URIS.preview : null);
+    if (card) next._meta = { ...(next._meta ?? {}), ...uiMeta(card) };
     const shape = next.inputSchema?.shape;
     if (shape) {
       const filled = {};
@@ -1857,5 +1862,26 @@ export function registerTools(server, client, env = process.env) {
       };
     },
   );
+  // ---- Interactive cards. Both tools only read; the cards they show change things only through snap_set_status, with its preview
+  // and approval. Without card support the same answer arrives as text and data.
+  read(
+    "snap_dashboard",
+    {
+      description: "Account dashboard (read-only): spend, ROAS, purchases, cost per purchase and swipe rate for the last 1 to 30 days, spend by day, and this month's pacing. Shows an interactive card with a 7, 14 or 30 day switch in apps that support cards; the same numbers come back as data otherwise. Not for one campaign's detail: use snap_report.",
+      shape: { days: z.number().int().min(1).max(30).default(7) },
+    },
+    ({ days }) => dashboardData(client, { adAccountId: account(), offset: policy.reportUtcOffset, days, currency: policy.currency }),
+  );
+
+  read(
+    "snap_campaign_board",
+    {
+      description: "Campaign board (read-only): every campaign with its status, last 7 days of spend and ROAS, and the daily budgets of its active ad squads. Shows an interactive card with Pause and Resume buttons in apps that support cards (each button still previews and asks you to confirm); the same list comes back as data otherwise. Not for ad squads or ads: use snap_list_adsquads or snap_list_ads.",
+      shape: { status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(100).default(30) },
+    },
+    ({ status, limit }) => boardData(client, { adAccountId: account(), offset: policy.reportUtcOffset, status, limit, currency: policy.currency }),
+  );
+
+  registerApps(server);
   finalizeMerges();
 }
