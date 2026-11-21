@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 // Regression tests for the findings of the independent security audit of 0.9.6. Each test was first written as a proof of concept
 // that passed while the bug existed (see the audit report); here each one asserts the fix.
 import { test } from "node:test";
@@ -13,7 +14,7 @@ async function forge(value) {
   const login = await startBrokerLogin({ brokerUrl: "https://broker.example", timeoutMs: 2000 });
   const u = new URL(login.url);
   const pk = u.searchParams.get("pk"), nonce = u.searchParams.get("nonce"), port = u.searchParams.get("port");
-  const sealed = await seal(pk, value, nonce);
+  const sealed = await seal(pk, value, nonce, webcrypto);
   const cb = new URL(`http://127.0.0.1:${port}/callback`);
   cb.search = new URLSearchParams({ nonce, epk: sealed.epk, salt: sealed.salt, iv: sealed.iv, ct: sealed.ct }).toString();
   const status = (await fetch(cb)).status;
