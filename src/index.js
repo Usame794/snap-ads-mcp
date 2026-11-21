@@ -10,6 +10,9 @@ import { registerTools } from "./tools.js";
 // versions. Treat those as unset, so an empty optional setting can never stop the server or become a real value.
 for (const [k, v] of Object.entries(process.env)) if (k.startsWith("SNAP_") && /^\$\{user_config\.[a-z_]+\}$/.test(v ?? "")) delete process.env[k];
 loadEnv();
+// The Desktop extension offers "core" when its Tool set setting is empty or was never saved (an upgraded install has no value for a
+// setting added later). A real value, including "all", always wins.
+if (!process.env.SNAP_TOOLSETS && process.env.SNAP_TOOLSETS_DEFAULT) process.env.SNAP_TOOLSETS = process.env.SNAP_TOOLSETS_DEFAULT;
 let policy;
 try {
   // Safety settings are validated before anything else. An invalid value stops the server instead of disabling a limit.
@@ -20,7 +23,7 @@ try {
 }
 // Snapshot of the non-secret settings taken at startup. Later edits to .env do not change limits or the target account.
 const settings = { ...process.env };
-const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.9.7" });
+const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.9.8" });
 // Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
 const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
 registerTools(server, client, settings);
