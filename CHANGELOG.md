@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Safety: `snap_set_frequency_cap`, `snap_set_ad_schedule`, `snap_set_placement` and `snap_claim_ad_code` are now marked destructive (they overwrite settings or use up a single-use code). New optional `SNAP_MEDIA_DIR`: when set, media and customer-list files must be inside that folder (symbolic links resolved).
+
 ## 0.9.5 (2026-11-17)
 
 - **Claude Desktop extension starts with changes allowed** (Read-only is off by default) and a daily budget limit of 500. Every change is still previewed and needs approval, everything created starts paused, and the limit and the new budget warning apply. `npx ... setup` still starts read-only unless you choose otherwise.

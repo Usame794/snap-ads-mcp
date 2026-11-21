@@ -16,6 +16,7 @@ import { compareReport, healthCheck, pixelHealth, reviewIssues } from "./audit.j
 import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
+import { assertFileAllowed } from "./media-dir.js";
 import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
@@ -1036,6 +1037,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_claim_ad_code",
     {
+      destructive: true,
       description: "Claim a creator's ad code (adcode_<uuid>) into the ad account. ONE-WAY: the code is single-use and cannot be unclaimed. Previews (format check only, nothing sent) unless confirm=true.",
       shape: { ad_code: z.string(), profile_id: id().optional().describe("Brand profile id; defaults to SNAP_BRAND_PROFILE_ID") },
       repeatGuard: true,
@@ -1305,6 +1307,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_frequency_cap",
     {
+      destructive: true,
       description: "Limit how often one person sees an ad squad's ads: at most `count` impressions per `every` HOURS or DAYS (up to 30 days), or clear the cap. A cap lowers repetition (and so frequency), and may lower delivery. Undo works when a cap existed before. Previews unless confirm=true.",
       shape: { adsquad_id: id(), count: z.number().int().min(1).max(100).optional(), every: z.number().int().min(1).max(720).optional(), unit: z.enum(CAP_UNITS).default("DAYS"), clear: z.boolean().default(false) },
     },
@@ -1314,6 +1317,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_ad_schedule",
     {
+      destructive: true,
       description: "Choose which hours of which days an ad squad's ads run (hours 0-23 in each viewer's local time), or run every hour. Snap allows this only on LIFETIME-budget ad squads, so it is refused on daily-budget ones. A narrow schedule lowers delivery. Undo works when a schedule existed before. Previews unless confirm=true.",
       shape: {
         adsquad_id: id(),
@@ -1337,6 +1341,7 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_set_placement",
     {
+      destructive: true,
       description: `Choose where on Snapchat an ad squad's ads may appear: automatic (everywhere) or custom positions (${PLACEMENT_POSITIONS.join(", ")}; CHAT_FEED must come with INTERSTITIAL_CONTENT or INTERSTITIAL_USER). Fewer placements usually mean less reach and a higher cost. Refused on ad squads that use content inclusion or exclusion lists. Undo works when a placement was set before. Previews unless confirm=true.`,
       shape: { adsquad_id: id(), mode: z.enum(["automatic", "custom"]), positions: z.array(z.enum(PLACEMENT_POSITIONS)).max(7).optional() },
     },
@@ -1394,6 +1399,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ file_path, name }) => {
+      assertFileAllowed(file_path, policy.mediaDir);
       const info = inspectMediaFile(file_path);
       const adAccountId = account();
       return {
@@ -1659,6 +1665,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ file_path, kind, name, column, default_country_code }) => {
+      assertFileAllowed(file_path, policy.mediaDir);
       const data = readIdentifiers(file_path, { kind, column, defaultCountryCode: default_country_code ?? policy.defaultPhoneCode ?? undefined });
       const summary = { column_used: data.column, rows: data.rows, valid_unique: data.valid, invalid_skipped: data.invalid, duplicates_removed: data.duplicates };
       if (!data.valid) throw new Error(`No valid ${kind} values found. ${JSON.stringify(summary)}`);
