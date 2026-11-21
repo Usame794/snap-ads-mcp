@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.7 (2026-11-21)
+
+Three changes together: fewer tools (merged near-duplicates, a core tool set), interactive cards (MCP Apps), and the quality-audit fixes. Existing tool names keep working behind `SNAP_LEGACY_TOOLS=1`; see the entries below. The Claude Desktop extension now starts with the core tool set and changes allowed (see 0.9.5).
+
 - **Interactive cards (MCP Apps).** New read-only tools `snap_dashboard` (spend, ROAS, purchases, pacing, 7/14/30-day switch) and `snap_campaign_board` (campaigns with Pause and Resume buttons), and a preview card for every tool that previews a change, with an Apply button. Cards are optional: apps without card support get the same answers as text and data. The buttons use the same previews, approval tokens, limits and read-only setting; the cards have no network access and show account names as plain text. 76 tools became 78, and both new tools are in the core set (now 46).
 
 - **Core tool set.** `SNAP_TOOLSETS=core` shows 44 everyday tools (read, check, launch campaigns, undo, and every tool the playbooks use); it can be combined with groups (`core,reports`). The Claude Desktop extension now starts with `core`; type `all` in its Tool set field to see every tool.
