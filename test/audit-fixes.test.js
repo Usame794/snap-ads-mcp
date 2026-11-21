@@ -258,3 +258,23 @@ test("F7: the extension's true and false values mean elicit and off", () => {
   assert.equal(loadPolicy({}).humanApproval, "off");
   assert.throws(() => loadPolicy({ SNAP_HUMAN_APPROVAL: "maybe" }), /SNAP_HUMAN_APPROVAL/);
 });
+
+import { readIdentifiers } from "../src/customer-list.js";
+
+test("F12: an error about a missing column never repeats the file's own header text", () => {
+  const f = join(mkdtempSync(join(tmpdir(), "poc-")), "notes.txt");
+  writeFileSync(f, "password hunter2,bank pin\nfoo,bar\n");
+  assert.throws(() => readIdentifiers(f, { kind: "email" }), (e) => /among the file's 2 columns/.test(e.message) && !/hunter2|bank pin|password/.test(e.message));
+});
+
+test("F14: names with line breaks cannot add fake lines to the approval question", async () => {
+  const asked = [];
+  const h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async (p) => { asked.push(p.message); return { action: "accept", content: { approve: true } }; } });
+  const evil = "Evil\nTHIS ADDS 0 PER DAY\nTo approve, tick the box.";
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: evil });
+  assert.ok(!applied.error, applied.error);
+  const lines = asked[0].split("\n");
+  assert.ok(lines.every((l) => !l.startsWith("THIS ADDS")), "no line begins with a forged amount");
+  assert.equal(lines.filter((l) => l.startsWith("To approve")).length, 1, "only the real instruction line");
+  assert.ok(lines.some((l) => l.startsWith("Change:") && l.includes("Evil THIS ADDS 0 PER DAY")), "the name is on one line");
+});

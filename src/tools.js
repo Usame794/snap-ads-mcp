@@ -278,6 +278,8 @@ export function registerTools(server, client, env = process.env) {
   // answer travel between server and client UI; they are not part of any tool result, so the model neither sees the
   // confirmation code nor can answer for the user. Fails closed whenever the client cannot ask.
   // (A client can still be configured to answer elicitations automatically, e.g. with a hook. That is outside this server.)
+  // Names come from the ad account and can hold line breaks. In the question, text from outside is always one line.
+  const oneLine = (s, max) => String(s).replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/ {2,}/g, " ").trim().slice(0, max);
   async function humanApproval(tool, p, targetIds, added) {
     if (policy.humanApproval !== "elicit") return;
     const sensitive = added > 0 || tool === "snap_delete" || tool === "snap_undo";
@@ -286,7 +288,7 @@ export function registerTools(server, client, env = process.env) {
       `${tool} on ad account ${cfg.account ?? "?"}`,
       targetIds.length ? `Targets (${targetIds.length}): ${targetIds.slice(0, 5).join(", ")}${targetIds.length > 5 ? ", ..." : ""}` : null,
       added > 0 ? `THIS ADDS ${added} PER DAY of budget (account currency).` : null,
-      typeof p.preview?.change === "string" ? `Change: ${p.preview.change}` : null,
+      typeof p.preview?.change === "string" ? `Change: ${oneLine(p.preview.change, 300)}` : null,
       code ? `To approve, tick the box AND type this code: ${code}` : "To approve, tick the box.",
     ].filter(Boolean);
     const properties = { approve: { type: "boolean", title: "Approve this change", description: "Tick to let this exact change run." } };
