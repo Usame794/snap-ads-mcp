@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Fixes from an independent security audit of 0.9.6 (every finding was reproduced with a test first):
+- **Forged login values (F2, high).** The local login listener accepts only a value shaped like a token, and writing a settings value with a line break or control character is refused, so a sealed value can no longer add lines such as `SNAP_HUMAN_APPROVAL=off` to the settings file.
+- **Stale updates (F1, high).** After you answer the "ask before every change" question, the item is read again and nothing is sent if it changed meanwhile; an update is also refused when the item changed since the preview, so a rename can no longer re-enable a campaign you paused.
+- **Campaign-level daily budgets (F3).** Enabling a campaign that has its own daily budget counts and limits that budget (against `SNAP_MAX_DAILY_BUDGET`, the per-call and the 24-hour limits). The first ad squad to deliver under such a campaign counts it too.
+- **`snap_api_get` (F5):** `%2e%2e` and other encoded paths are refused. **Undo (F8):** a forced undo can no longer restore a daily budget above the ceiling when the item has no daily budget now. **Dynamic templates (F9):** one without an ad account is refused. **Ad schedule (F15):** naming only some days works, as documented.
+- **`snap_connect` (F6):** marked destructive; once an ad account is set, read-only mode refuses to switch the account or login, and with human approval on the person is asked first.
+- **Desktop extension (F7):** new optional setting "Ask me before every change"; the wording no longer says a person approves every change when that is off.
+- **Link checker (F11):** connects to the address it checked (no second DNS lookup), still verifying the certificate for the real name; NAT64 addresses count as private. **Customer lists (F12):** an error about a missing column no longer repeats the file's header text. **Approval question (F14):** names are shown on one line, so a name cannot add fake lines.
+- **Ids (F10):** pixel and audience ids given as arguments must belong to the ad account. **Dates (F16):** a plain end date includes that whole day; a refresh token that Snap rotates is saved.
+- **Smaller:** report downloads are not saved when they redirect or exceed 200 MB; auto-strip never drops a field you chose (link, headline, budget, media); the approval store keeps 2000 previews; copying into an existing campaign shows the ad squads already in it.
+- **Documented, not fixed:** the shared login's renew endpoint has no rate limit and the refresh token is a bearer secret; the 24-hour limit lives in one log file; see SECURITY.md "Known limits".
+
 - **More interactive tools** (from an independent patch, reviewed and tested here). New read-only tools `snap_change_history` (a filterable timeline of changes with before and after values and Undo buttons) and `snap_setup_check` (a checklist of the login, account, pixel, profile, country, change log and safety settings, with how to fix each). `snap_campaign_board` takes `level` (campaigns or ad squads, with -20% and +20% budget buttons) and `days` (1-30). The budget advice shows as a card where you tick suggestions and apply them together; each one is previewed and uses its own approval token, and a warning in any preview stops the batch instead of applying it. Every preview now starts with `impact_line`, one sentence about the spending effect. Names are shown with `dir="auto"` so Arabic names read correctly; amounts use the account currency (three decimals for KWD, BHD, OMR, JOD). 78 tools became 80; the core set is 48.
 
 ## 0.9.8 (2026-11-21)

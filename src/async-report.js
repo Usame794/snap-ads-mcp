@@ -40,13 +40,44 @@ export function checkDownloadUrl(raw) {
   return u;
 }
 
-export async function downloadAsyncReport(client, { entity, id, report_run_id, fileName, fetchImpl = fetch, dir = join(DATA_DIR, "exports") }) {
+// A report file larger than this is refused (a CSV of a very big account is well below it).
+export const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+
+// Reads at most `max` bytes of a response body as text; throws if there is more.
+async function readLimited(res, max) {
+  const declared = Number(res.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > max) throw new Error(`The report file is ${Math.round(declared / 1048576)} MB, over the ${Math.round(max / 1048576)} MB limit; not downloaded.`);
+  if (!res.body?.getReader) {
+    const text = await res.text();
+    if (text.length > max) throw new Error(`The report file is over the ${Math.round(max / 1048576)} MB limit; not saved.`);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > max) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`The report file is over the ${Math.round(max / 1048576)} MB limit; stopped downloading.`);
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+export async function downloadAsyncReport(client, { entity, id, report_run_id, fileName, fetchImpl = fetch, dir = join(DATA_DIR, "exports"), maxBytes = MAX_DOWNLOAD_BYTES }) {
   const st = await asyncReportStatus(client, { entity, id, report_run_id });
   if (st.status !== "COMPLETED" || !st.download_url) return { downloaded: false, status: st.status, note: "Not ready yet. Check again in a minute." };
   checkDownloadUrl(st.download_url);
-  const res = await fetchImpl(st.download_url);
+  // Redirects are not followed: the address was checked, a redirect target would not be.
+  const res = await fetchImpl(st.download_url, { redirect: "manual" });
+  if (res.status >= 300 && res.status < 400) throw new Error(`The download address redirected (${res.status}); redirects are not followed.`);
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  const text = await res.text();
+  const text = await readLimited(res, maxBytes);
   mkdirSync(dir, { recursive: true });
   const safe = String(fileName ?? `report-${Date.now()}.csv`).replace(/[^A-Za-z0-9._-]/g, "_");
   const path = join(dir, safe.endsWith(".csv") ? safe : safe + ".csv");

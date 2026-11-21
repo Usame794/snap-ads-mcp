@@ -367,3 +367,52 @@ test("F16: a refresh token rotated by Snap is kept, in both login modes, and onl
   await same.accessToken();
   assert.equal(saved.length, 2, "an unchanged token is not saved again");
 });
+
+import { downloadAsyncReport } from "../src/async-report.js";
+import { createWithAutoStrip } from "../src/creative-tools.js";
+import { ApprovalStore } from "../src/approval.js";
+
+test("design: a report download is not saved when it redirects or is over the size limit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dl-"));
+  const client = { request: async () => ({ async_stats_report_results: [{ async_stats_report_result: { async_status: "COMPLETED", result: "https://storage.googleapis.com/snap-reports/r.csv" } }] }) };
+  const base = { entity: "adaccount", id: "a", report_run_id: "RUN1", dir };
+  // Sanity: the same setup downloads a normal file, so the refusals below are the limits and not a broken test.
+  const fine = await downloadAsyncReport(client, { ...base, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => "id,spend\n1,10\n" }) });
+  assert.equal(fine.downloaded, true);
+  let sawManual = false;
+  await assert.rejects(downloadAsyncReport(client, { ...base, fetchImpl: async (u, o) => ((sawManual = o?.redirect === "manual"), { ok: false, status: 302, headers: { get: () => "http://169.254.169.254/" }, text: async () => "" }) }), /redirected \(302\); redirects are not followed/);
+  assert.equal(sawManual, true, "redirects are asked not to be followed");
+  await assert.rejects(downloadAsyncReport(client, { ...base, maxBytes: 10, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: (k) => (k === "content-length" ? "999" : null) }, text: async () => "x".repeat(999) }) }), /limit; not downloaded/);
+  await assert.rejects(downloadAsyncReport(client, { ...base, maxBytes: 10, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => "x".repeat(999) }) }), /over the .* limit; not saved/);
+});
+
+test("design: auto-strip removes only fields Snap computes, never one the person chose", async () => {
+  const seen = [];
+  const client = { createEntity: async (entity, obj) => { seen.push(Object.keys(obj)); throw new Error("Snap API POST failed (400): not allowed : [headline]"); } };
+  await assert.rejects(createWithAutoStrip(client, "creative", { ad_account_id: "a", headline: "Keep me", name: "n" }), /not allowed : \[headline\]/);
+  assert.equal(seen.length, 1, "no retry without the headline");
+  let calls = 0;
+  const ok = { createEntity: async (entity, obj) => { calls++; if ("delivery_status" in obj) throw new Error("not allowed : [delivery_status]"); return { id: "x" }; } };
+  const r = await createWithAutoStrip(ok, "creative", { ad_account_id: "a", name: "n", delivery_status: "VALID" });
+  assert.deepEqual(r.stripped, ["delivery_status"]);
+  assert.equal(calls, 2);
+});
+
+test("design: the approval store keeps far more previews than a person can read at once", () => {
+  const store = new ApprovalStore({});
+  const tokens = Array.from({ length: 600 }, (_, i) => store.issue("snap_rename", `binding-${i}`, {}).token);
+  assert.doesNotThrow(() => store.consume("snap_rename", tokens[0], "binding-0", {}), "the oldest of 600 previews still works");
+});
+
+test("design: copying into an existing campaign shows the ad squads already there before confirming", async () => {
+  const w = sampleWorld();
+  w.campaigns.cx2 = { id: "cx2", name: "Half-done copy", status: "PAUSED", ad_account_id: ACC, updated_at: "t0" };
+  w.adsquads.pre = { id: "pre", name: "Already here", status: "ACTIVE", campaign_id: "cx2", daily_budget_micro: 77e6, bid_micro: 2e6, targeting: {}, updated_at: "t0" };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_copy_campaign", { campaign_id: "c1", new_name: "Copy of c1", resume_campaign_id: "cx2" });
+  assert.ok(r.data?.approval_token, JSON.stringify(r).slice(0, 300));
+  assert.deepEqual(r.data.already_in_the_target_campaign, [{ id: "pre", name: "Already here", status: "ACTIVE", daily_budget: 77 }]);
+  assert.match(r.data.reuse_note, /reused as they are/);
+  const plain = await h.call("snap_copy_campaign", { campaign_id: "c1", new_name: "Copy of c1 b" });
+  assert.equal(plain.data.already_in_the_target_campaign, undefined, "a normal copy has nothing to show");
+});

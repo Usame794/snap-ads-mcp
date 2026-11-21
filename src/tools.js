@@ -1211,10 +1211,13 @@ export function registerTools(server, client, env = process.env) {
         if (resume.status !== "PAUSED") throw new Error("resume_campaign_id must be a PAUSED campaign left by a failed copy");
         targets.push({ entity: "campaign", obj: resume });
       }
+      // Ad squads already in the campaign being filled are reused as they are, whatever their status or budget (matched by name).
+      // Show them, so the person sees what is already there before confirming.
+      const alreadyThere = resume ? (await client.listChildren("campaign", resume.id, "adsquad")).map((s) => ({ id: s.id, name: s.name, status: s.status, daily_budget: s.daily_budget_micro != null ? s.daily_budget_micro / 1e6 : null })) : [];
       return {
         targets,
-        state: { campaign: src.campaign, squads: src.squads, ads: src.adsBySquad, resume },
-        preview: { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." },
+        state: { campaign: src.campaign, squads: src.squads, ads: src.adsBySquad, resume, alreadyThere },
+        preview: { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, ...(resume ? { already_in_the_target_campaign: alreadyThere, reuse_note: "Ad squads already in the target campaign are reused as they are (matched by name), with their current status and budget. Only what is missing is created." } : {}), note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." },
         execute: async () => ({ applied: true, created: await executeCopy({ client, plan, sourceCampaignId: campaign_id, resumeCampaignId: resume_campaign_id, logFile }), note: "Everything is PAUSED. Review in Ads Manager, then enable the campaign, ad squads and ads." }),
       };
     },
