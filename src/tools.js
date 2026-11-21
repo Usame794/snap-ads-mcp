@@ -1249,7 +1249,8 @@ export function registerTools(server, client, env = process.env) {
         const obj = buildDynamicCreative({ adAccountId: account(), profileId: brandProfile(profile_id), name, headline, callToAction: call_to_action, templateId: dynamic_template_id, productSetId: product_set_id, urlMacroParameters: url_macro_parameters });
         await ownProductSet(product_set_id);
         const template = await client.getEntity("dynamic_template", dynamic_template_id);
-        if (template.ad_account_id && template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
+        if (!template.ad_account_id) throw new Error("Snap did not say which ad account that dynamic template belongs to, so it cannot be verified; refusing to use it.");
+        if (template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
         return {
           targetIds: [dynamic_template_id, product_set_id],
           state: { template: template.id },
@@ -1493,7 +1494,7 @@ export function registerTools(server, client, env = process.env) {
       description: "Choose which hours of which days an ad squad's ads run (hours 0-23 in each viewer's local time), or run every hour. Snap allows this only on LIFETIME-budget ad squads, so it is refused on daily-budget ones. A narrow schedule lowers delivery. Undo works when a schedule existed before. Previews unless confirm=true.",
       shape: {
         adsquad_id: id(),
-        schedule: z.record(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), z.array(z.number().int().min(0).max(23)).min(1).max(24)).optional().describe("e.g. {\"friday\": [18,19,20,21], \"saturday\": [18,19,20,21]}"),
+        schedule: z.partialRecord(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), z.array(z.number().int().min(0).max(23)).min(1).max(24)).optional().describe("e.g. {\"friday\": [18,19,20,21], \"saturday\": [18,19,20,21]}"),
         always: z.boolean().default(false).describe("true = every hour of every day"),
       },
     },

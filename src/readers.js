@@ -2,8 +2,9 @@
 const ALLOWED = ["/adaccounts/", "/campaigns/", "/adsquads/", "/ads/", "/creatives/", "/media/", "/pixels/", "/organizations/", "/catalogs/", "/segments/", "/targeting/", "/me", "/members/", "/billingcenters/", "/fundingsources/", "/mobile-apps/"];
 
 export function checkReadPath(path) {
-  if (typeof path !== "string" || !path.startsWith("/") || path.includes("..") || path.includes("//") || path.includes("?")) {
-    throw new Error("path must start with / and have no '..', '//' or '?'. Put query values in `query`.");
+  // No "%" at all: "%2e%2e" is ".." once the address is built, which would leave the allowed part of the API. No "#", "\\" or control characters either.
+  if (typeof path !== "string" || !path.startsWith("/") || path.includes("..") || path.includes("//") || path.includes("?") || /[%#\\\u0000-\u001f\u007f]/.test(path)) {
+    throw new Error("path must start with / and have no '..', '//', '?', '%' or '#'. Put query values in `query`.");
   }
   // Prefixes end in "/" and match as prefixes; "/me" is one exact endpoint, not a prefix for anything that starts with it.
   if (!ALLOWED.some((p) => (p.endsWith("/") ? path.startsWith(p) : path === p))) throw new Error(`path not allowed. It must start with one of: ${ALLOWED.join(" ")}`);

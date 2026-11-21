@@ -328,11 +328,13 @@ export function planUndo(entry, current, { force = false, env = process.env, his
   // An undo is a change like any other: putting money back up goes through the same limits. (Re-enabling is checked by the
   // caller, which can read what the activation would start.)
   const policy = loadPolicy(env);
-  if (typeof patch.daily_budget_micro === "number" && current.daily_budget_micro != null) {
-    checkDailyBudget(policy, { before: unmicro(current.daily_budget_micro), value: unmicro(patch.daily_budget_micro), windowStart: windowStart(history, current, "daily_budget_micro"), restoring: true, what: "Daily budget (undo)" });
+  // The ceiling applies even when the item has no daily budget or bid now (it was switched to a lifetime budget, say): a missing
+  // current value counts as a raise from nothing, so the absolute limit is always checked.
+  if (typeof patch.daily_budget_micro === "number") {
+    checkDailyBudget(policy, { before: current.daily_budget_micro != null ? unmicro(current.daily_budget_micro) : null, value: unmicro(patch.daily_budget_micro), windowStart: windowStart(history, current, "daily_budget_micro"), restoring: true, what: "Daily budget (undo)" });
   }
-  if (typeof patch.bid_micro === "number" && current.bid_micro != null) {
-    checkBid(policy, { before: unmicro(current.bid_micro), value: unmicro(patch.bid_micro), windowStart: windowStart(history, current, "bid_micro"), restoring: true, what: "Max bid (undo)" });
+  if (typeof patch.bid_micro === "number") {
+    checkBid(policy, { before: current.bid_micro != null ? unmicro(current.bid_micro) : null, value: unmicro(patch.bid_micro), windowStart: windowStart(history, current, "bid_micro"), restoring: true, what: "Max bid (undo)" });
   }
   return { patch, summary: `undo: ${entry.change}` };
 }

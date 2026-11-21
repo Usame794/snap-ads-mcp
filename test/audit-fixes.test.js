@@ -122,3 +122,41 @@ test("F1: without the approval question, a change made between the preview and t
   assert.ok(applied.error, "refused");
   assert.equal(h.db.campaigns.c1.status, "PAUSED");
 });
+
+import { checkReadPath } from "../src/readers.js";
+
+test("F5: encoded dot segments and other tricks are refused in snap_api_get paths", () => {
+  for (const bad of ["/adaccounts/%2e%2e/%2e%2e/oauth2/x", "/adaccounts/%2E%2E/x", "/adaccounts/a%2fb", "/adaccounts/x#y", "/adaccounts/a\\b", "/adaccounts/x\n", "/adaccounts/../me"]) assert.throws(() => checkReadPath(bad), /path must start with/, JSON.stringify(bad));
+  assert.equal(checkReadPath("/adaccounts/abc-123/campaigns"), "/adaccounts/abc-123/campaigns");
+  assert.equal(checkReadPath("/me"), "/me");
+});
+
+test("F8: undo with force cannot restore a daily budget above the ceiling, even when the item is on a lifetime budget now", async () => {
+  const w = sampleWorld();
+  w.adsquads.big = { id: "big", name: "Big", status: "PAUSED", campaign_id: "c1", daily_budget_micro: 2000e6, bid_micro: 2e6, targeting: {}, updated_at: "t0" };
+  const h = await setup({ world: w, env: { SNAP_MAX_DAILY_BUDGET: "1000" } });
+  assert.ok(!(await h.twoStep("snap_set_daily_budget", { entity: "adsquad", id: "big", daily_budget: 500 })).applied.error);
+  h.db.adsquads.big = { ...h.db.adsquads.big, daily_budget_micro: null, lifetime_budget_micro: 9000e6, updated_at: "t-x" };
+  const undo = await h.call("snap_undo", { force: true });
+  assert.match(undo.error ?? "", /above the absolute limit of 1000/);
+  assert.equal(h.db.adsquads.big.daily_budget_micro, null, "the 2000 a day was not put back");
+});
+
+test("F9: a dynamic template that does not say which account it belongs to is refused", async () => {
+  const w = sampleWorld();
+  w.dynamic_templates.dtq = { id: "dtq", name: "No account", layout: "AUTOMATIC" };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_create_creative", { creative_type: "DYNAMIC_PRODUCT", name: "Dyn", headline: "Hi", dynamic_template_id: "dtq", product_set_id: "ps1" });
+  assert.match(r.error ?? "", /cannot be verified/);
+  assert.equal(h.writes().length, 0);
+});
+
+test("F15: an ad schedule naming only some days is accepted through the tool, as documented", async () => {
+  const w = sampleWorld();
+  w.adsquads.s1 = { ...w.adsquads.s1, daily_budget_micro: null, lifetime_budget_micro: 100e6 };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_set_ad_schedule", { adsquad_id: "s1", schedule: { friday: [18, 19] } });
+  assert.ok(!r.error, r.error);
+  assert.ok(r.data.approval_token, "a preview with an approval token");
+  assert.doesNotMatch(JSON.stringify(r.data), /schedule\.monday/);
+});
