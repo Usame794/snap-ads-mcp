@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Dates: wherever a tool takes `start_time`, `end_time` or the compare-window times, a plain `YYYY-MM-DD` now works (it means 00:00 that day in `SNAP_REPORT_UTC_OFFSET`); ISO date-times on the hour still work.
+- Long answers: new `SNAP_MAX_RESPONSE_CHARS` (default 100000). A longer answer is cut with a note saying how to ask for less.
+- The list tools declare an `outputSchema` (`items`, `returned`, `total_matching`, `has_more`, `next_offset`, `notes`).
+
 - Errors: Snap HTTP errors now end with a plain "Fix:" sentence (re-run setup, ask an Admin, get the id from a list tool, wait N seconds).
 - Descriptions: every parameter of every tool now has a description (where its id comes from, units, examples); 22 tools got a "use this / not that" pointer. A test keeps it at 100%.
 - Lists: `snap_list_*` tools take `offset` and `response_format` (concise or detailed) and report `has_more` and `next_offset`. `snap_list_pixels`, `snap_list_catalogs` and `snap_list_product_sets` gained `limit`.

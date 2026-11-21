@@ -102,6 +102,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | Setting | Default | Meaning |
 |---|---|---|
 | `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
+| `SNAP_MAX_RESPONSE_CHARS` | 100000 | Longest answer a tool returns; longer ones are cut with a note saying how to ask for less. |
 | `SNAP_MEDIA_DIR` | (none) | Optional folder allow-list: when set, `snap_upload_media` and `snap_upload_customer_list` only read files inside this folder (symbolic links are resolved first). Recommended, so the server cannot be steered into reading other files on your computer. |
 | `SNAP_WARN_DAILY_BUDGET` | (none) | Optional **warning** level, not a limit: a change that adds more than this daily budget shows a `budget_warning` in the preview. Without it, the preview still warns when a change adds more than twice your largest running ad squad (or, on an account with none running, more than half of `SNAP_MAX_DAILY_BUDGET`). |
 | `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |

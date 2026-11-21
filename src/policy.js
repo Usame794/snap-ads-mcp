@@ -95,6 +95,7 @@ export function loadPolicy(env = process.env) {
     maxActivationDailyBudget,
     // Everything this server may add to the account's daily spend in any 24 hours: budgets it starts plus budget increases.
     maxAddedDailyBudget24h: readNumber(env, "SNAP_MAX_ADDED_DAILY_BUDGET_24H", maxActivationDailyBudget * 2, { min: 0, max: HARD_MAX, exclusiveMin: true }, errors),
+    maxResponseChars: readNumber(env, "SNAP_MAX_RESPONSE_CHARS", 100000, { min: 5000, max: 5_000_000, integer: true }, errors),
     approvalTtlSeconds: readNumber(env, "SNAP_APPROVAL_TTL_SECONDS", 600, { min: 30, max: 3600, integer: true }, errors),
     repeatWindowSeconds: readNumber(env, "SNAP_REPEAT_WINDOW_SECONDS", 600, { min: 0, max: 86400, integer: true }, errors),
     httpTimeoutMs: readNumber(env, "SNAP_HTTP_TIMEOUT_MS", 60000, { min: 1000, max: 600000, integer: true }, errors),
