@@ -65,7 +65,9 @@ export async function startBrokerLogin({ brokerUrl, timeoutMs = 5 * 60_000, cryp
       const q = u.searchParams;
       if (settled || q.get("nonce") !== nonce) return reply(400, false);
       const token = await open(keys.privateKey, { v: 1, epk: q.get("epk"), salt: q.get("salt"), iv: q.get("iv"), ct: q.get("ct") }, nonce, crypto);
-      if (typeof token !== "string" || token.length < 10) return reply(400, false);
+      // A refresh token is one run of letters, digits and . _ ~ + / = -. Anything else (a line break, a space) is not a token and must
+      // never reach the settings file, even if it was sealed to this login's key (anyone who saw the login link can do that).
+      if (typeof token !== "string" || !/^[A-Za-z0-9._~+/=-]{10,4096}$/.test(token)) return reply(400, false);
       settled = true;
       reply(200, true);
       clear();
