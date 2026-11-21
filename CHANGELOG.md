@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.6 (2026-11-21)
+
+From the quality audit (see AUDIT-REPORT.md). No tool was renamed or removed.
+
 - Dates: wherever a tool takes `start_time`, `end_time` or the compare-window times, a plain `YYYY-MM-DD` now works (it means 00:00 that day in `SNAP_REPORT_UTC_OFFSET`); ISO date-times on the hour still work.
 - Long answers: new `SNAP_MAX_RESPONSE_CHARS` (default 100000). A longer answer is cut with a note saying how to ask for less.
 - The list tools declare an `outputSchema` (`items`, `returned`, `total_matching`, `has_more`, `next_offset`, `notes`).
