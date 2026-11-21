@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "ads-mcp-for-snapchat",
   "display_name": "Ads MCP for Snapchat",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
   "long_description": "Unofficial. Runs on your computer. Claude can create and change campaigns: every change is previewed and needs your approval, everything it creates starts paused, and your daily budget limit always applies; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
   "author": {
@@ -39,7 +39,8 @@
         "SNAP_MAX_DAILY_BUDGET": "${user_config.max_daily_budget}",
         "SNAP_DEFAULT_COUNTRY": "${user_config.default_country}",
         "SNAP_READ_ONLY": "${user_config.read_only}",
-        "SNAP_TOOLSETS": "${user_config.toolsets}"
+        "SNAP_TOOLSETS": "${user_config.toolsets}",
+        "SNAP_TOOLSETS_DEFAULT": "core"
       }
     }
   },
@@ -82,9 +83,9 @@
     "toolsets": {
       "type": "string",
       "title": "Tool set",
-      "description": "core = about 40 everyday tools (read, check, launch campaigns). Type all to show every tool, or a list such as core,reports.",
+      "description": "Optional. core (the default) = 46 everyday tools: read, check, launch campaigns. Type all to show every tool, or a list such as core,reports.",
       "default": "core",
-      "required": true
+      "required": false
     }
   },
   "compatibility": {

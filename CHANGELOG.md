@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.8 (2026-11-21)
+
+- **Fix: the Claude Desktop extension did not start after upgrading to 0.9.7.** 0.9.7 added a required setting (Tool set); an upgraded install has no saved value for it, and Desktop then reports "No MCP config found" and never starts the server. The setting is now optional, the extension passes `SNAP_TOOLSETS_DEFAULT=core`, and the server uses it when the Tool set is empty or was never saved. Tests start the server in every state of the setting and keep new extension settings optional.
+
 ## 0.9.7 (2026-11-21)
 
 Three changes together: fewer tools (merged near-duplicates, a core tool set), interactive cards (MCP Apps), and the quality-audit fixes. Existing tool names keep working behind `SNAP_LEGACY_TOOLS=1`; see the entries below. The Claude Desktop extension now starts with the core tool set and changes allowed (see 0.9.5).

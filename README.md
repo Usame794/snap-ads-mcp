@@ -104,6 +104,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
 | `SNAP_MAX_RESPONSE_CHARS` | 100000 | Longest answer a tool returns; longer ones are cut with a note saying how to ask for less. |
 | `SNAP_LEGACY_TOOLS` | off | Set to 1 to also show the old tool names that were merged into other tools (for example `snap_set_status_bulk`, `snap_bulk_set_budget`, `snap_report_daily`). They work as before and say which tool replaced them. Off by default, so the assistant sees fewer tools. |
+| `SNAP_TOOLSETS_DEFAULT` | (none) | Set by the Claude Desktop extension to `core`: used only when `SNAP_TOOLSETS` is empty or was never saved, so upgraded installs start with the core tool set. A real `SNAP_TOOLSETS` value always wins. |
 | `SNAP_MEDIA_DIR` | (none) | Optional folder allow-list: when set, `snap_upload_media` and `snap_upload_customer_list` only read files inside this folder (symbolic links are resolved first). Recommended, so the server cannot be steered into reading other files on your computer. |
 | `SNAP_WARN_DAILY_BUDGET` | (none) | Optional **warning** level, not a limit: a change that adds more than this daily budget shows a `budget_warning` in the preview. Without it, the preview still warns when a change adds more than twice your largest running ad squad (or, on an account with none running, more than half of `SNAP_MAX_DAILY_BUDGET`). |
 | `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |
