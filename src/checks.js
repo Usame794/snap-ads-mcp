@@ -1,6 +1,7 @@
 // Read-only checks added in 0.7.0: do the ads' landing pages work, did something change sharply, and how much of Snap's
 // reported revenue does the store confirm. None of them changes anything in the ad account.
 import { lookup as dnsLookup } from "node:dns/promises";
+import https from "node:https";
 import { isIP } from "node:net";
 import { accountTotals, dailyReport, totalsOf } from "./report.js";
 import { localClock } from "./insights.js";
@@ -18,22 +19,43 @@ export function isPrivateAddress(ip) {
   }
   const v6 = ip.toLowerCase();
   if (v6.startsWith("::ffff:")) return isPrivateAddress(v6.slice(7));
-  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || /^fe[89ab]/.test(v6) || v6.startsWith("ff");
+  // 64:ff9b::/96 (NAT64) carries an IPv4 address inside it, so it can reach private IPv4 networks.
+  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || /^fe[89ab]/.test(v6) || v6.startsWith("ff") || v6.startsWith("64:ff9b:");
 }
 
+// Returns the address that passed the check, so the connection can use exactly that one.
 async function assertPublic(hostname, lookup) {
   if (isIP(hostname)) {
     if (isPrivateAddress(hostname)) throw new Error("points to a private address");
-    return;
+    return { address: hostname, family: isIP(hostname) };
   }
   if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) throw new Error("points to a private address");
   const addrs = await lookup(hostname, { all: true });
   if (!addrs.length) throw new Error("did not resolve");
   if (addrs.some((a) => isPrivateAddress(a.address))) throw new Error("resolves to a private address");
+  return { address: addrs[0].address, family: addrs[0].family ?? isIP(addrs[0].address) };
+}
+
+// One GET that connects to the address that was already checked. The name is not looked up again, so a name that answers with a
+// public address for the check and a private one for the connection (DNS rebinding) cannot reach a private network. The
+// certificate is still checked against the real name (servername). Only the status and headers are read; the body is dropped.
+export function pinnedGet(u, { address, family, timeoutMs, headers }, { request = https.request } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = request({
+      protocol: "https:", hostname: u.hostname, port: u.port || 443, path: `${u.pathname}${u.search}`, method: "GET", headers, servername: u.hostname, timeout: timeoutMs,
+      lookup: (_host, options, cb) => (options && options.all ? cb(null, [{ address, family }]) : cb(null, address, family)),
+    }, (res) => {
+      resolve({ status: res.statusCode, headers: { get: (k) => res.headers[String(k).toLowerCase()] ?? null }, body: { cancel: async () => res.destroy() } });
+      res.resume?.();
+    });
+    req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { name: "TimeoutError" })));
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 // One link, followed through redirects by hand so every hop is checked. Only https, only public addresses.
-export async function checkUrl(url, { fetchImpl = fetch, lookup = dnsLookup, timeoutMs = 8000, maxRedirects = 5, now = () => Date.now() } = {}) {
+export async function checkUrl(url, { fetchImpl = null, pinned = pinnedGet, lookup = dnsLookup, timeoutMs = 8000, maxRedirects = 5, now = () => Date.now() } = {}) {
   const started = now();
   let current = url;
   const chain = [];
@@ -41,12 +63,15 @@ export async function checkUrl(url, { fetchImpl = fetch, lookup = dnsLookup, tim
     for (let hop = 0; hop <= maxRedirects; hop++) {
       const u = new URL(current);
       if (u.protocol !== "https:") return { url, verdict: "NOT_HTTPS", detail: `${hop ? "A redirect leads to" : "The link is"} ${u.protocol}//, not https`, chain };
+      let target;
       try {
-        await assertPublic(u.hostname, lookup);
+        target = await assertPublic(u.hostname, lookup);
       } catch (e) {
         return { url, verdict: "UNSAFE_TARGET", detail: `${u.hostname} ${e.message}; not contacted`, chain };
       }
-      const res = await fetchImpl(u, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "User-Agent": "ads-mcp-for-snapchat link check", Accept: "text/html,*/*" } });
+      const headers = { "User-Agent": "ads-mcp-for-snapchat link check", Accept: "text/html,*/*" };
+      // Unless a test supplies its own fetch, the connection goes to the checked address (see pinnedGet).
+      const res = fetchImpl ? await fetchImpl(u, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers }) : await pinned(u, { ...target, timeoutMs, headers });
       await res.body?.cancel?.().catch?.(() => {});
       const status = res.status;
       chain.push(status);

@@ -278,3 +278,45 @@ test("F14: names with line breaks cannot add fake lines to the approval question
   assert.equal(lines.filter((l) => l.startsWith("To approve")).length, 1, "only the real instruction line");
   assert.ok(lines.some((l) => l.startsWith("Change:") && l.includes("Evil THIS ADDS 0 PER DAY")), "the name is on one line");
 });
+
+import { EventEmitter } from "node:events";
+import { checkUrl, isPrivateAddress, pinnedGet } from "../src/checks.js";
+
+test("F11: the link checker connects to the address it checked, not to a fresh lookup (DNS rebinding)", async () => {
+  let lookups = 0;
+  const seen = [];
+  const lookup = async () => [{ address: lookups++ === 0 ? "93.184.216.34" : "10.0.0.5", family: 4 }]; // public for the check, private afterwards
+  const pinned = async (u, { address, family }) => (seen.push({ host: u.hostname, address, family }), { status: 200, headers: { get: () => null }, body: { cancel: async () => {} } });
+  const r = await checkUrl("https://rebind.example/page", { lookup, pinned });
+  assert.equal(r.verdict, "OK");
+  assert.equal(lookups, 1, "the name is looked up once");
+  assert.deepEqual(seen, [{ host: "rebind.example", address: "93.184.216.34", family: 4 }], "the connection uses the checked address");
+});
+
+test("F11: pinnedGet connects to the given address, keeps the real name for the certificate, and keeps the path", async () => {
+  let options;
+  const request = (o, onResponse) => {
+    options = o;
+    const req = new EventEmitter();
+    req.end = () => onResponse({ statusCode: 301, headers: { location: "https://example.com/next" }, resume() {}, destroy() {} });
+    req.destroy = () => {};
+    return req;
+  };
+  const res = await pinnedGet(new URL("https://shop.example/a/b?x=1"), { address: "93.184.216.34", family: 4, timeoutMs: 1000, headers: { Accept: "*/*" } }, { request });
+  assert.equal(res.status, 301);
+  assert.equal(res.headers.get("Location"), "https://example.com/next");
+  assert.equal(options.hostname, "shop.example");
+  assert.equal(options.servername, "shop.example");
+  assert.equal(options.path, "/a/b?x=1");
+  await new Promise((ok) => options.lookup("shop.example", {}, (e, a, f) => (assert.deepEqual([e, a, f], [null, "93.184.216.34", 4]), ok())));
+  await new Promise((ok) => options.lookup("shop.example", { all: true }, (e, list) => (assert.deepEqual(list, [{ address: "93.184.216.34", family: 4 }]), ok())));
+});
+
+test("F11: a name that resolves to a private address is still not contacted, and NAT64 counts as private", async () => {
+  let contacted = false;
+  const r = await checkUrl("https://internal.example/", { lookup: async () => [{ address: "10.1.2.3", family: 4 }], pinned: async () => ((contacted = true), {}) });
+  assert.equal(r.verdict, "UNSAFE_TARGET");
+  assert.equal(contacted, false);
+  assert.equal(isPrivateAddress("64:ff9b::a00:1"), true);
+  assert.equal(isPrivateAddress("2606:4700::1111"), false);
+});
