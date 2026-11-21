@@ -1,0 +1,15 @@
+{
+  "about": "Read-only evaluation questions with known answers, run against the in-memory fake Snap used by the tests (test/helpers/harness.js sampleWorld). Each question names the tool an assistant should pick, its arguments, and what the answer must contain. Paths are dot paths over the JSON the tool returns; [n] picks an array item and length is an array's size.",
+  "questions": [
+    { "q": "How many campaigns does the ad account have?", "tool": "snap_list_campaigns", "args": {}, "expect": [{ "path": "length", "equals": 2 }] },
+    { "q": "Which campaigns are running right now?", "tool": "snap_list_campaigns", "args": { "status": "ACTIVE" }, "expect": [{ "path": "length", "equals": 1 }, { "path": "[0].name", "equals": "Campaign c1" }] },
+    { "q": "How many ad squads in campaign c2 are active?", "tool": "snap_list_adsquads", "args": { "campaign_id": "c2", "status": "ACTIVE" }, "expect": [{ "path": "length", "equals": 2 }] },
+    { "q": "What is the daily budget of the ad squad called Squad s4?", "tool": "snap_get_entity", "args": { "entity": "adsquad", "id": "s4" }, "expect": [{ "path": "daily_budget_micro", "equals": 50000000 }] },
+    { "q": "Which ads are in ad squad s1?", "tool": "snap_list_ads", "args": { "adsquad_id": "s1" }, "expect": [{ "path": "length", "equals": 1 }, { "path": "[0].name", "equals": "Ad a1" }] },
+    { "q": "What creatives can I reuse?", "tool": "snap_list_creatives", "args": {}, "expect": [{ "path": "[0].name", "equals": "Creative one" }] },
+    { "q": "Which audiences exist?", "tool": "snap_list_segments", "args": {}, "expect": [{ "path": "[0].name", "equals": "Buyers" }] },
+    { "q": "Which product catalog does the organization have?", "tool": "snap_list_catalogs", "args": {}, "expect": [{ "path": "[0].name", "equals": "Main catalog" }] },
+    { "q": "Which product sets are in catalog cat1?", "tool": "snap_list_product_sets", "args": { "catalog_id": "cat1" }, "expect": [{ "path": "[0].name", "equals": "All products" }] },
+    { "q": "Which ad account is connected?", "tool": "snap_ping", "args": {}, "expect": [{ "path": "ad_account", "equals": "acc-1" }, { "path": "ok", "equals": true }] }
+  ]
+}

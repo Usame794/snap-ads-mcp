@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Errors: Snap HTTP errors now end with a plain "Fix:" sentence (re-run setup, ask an Admin, get the id from a list tool, wait N seconds).
+- Descriptions: every parameter of every tool now has a description (where its id comes from, units, examples); 22 tools got a "use this / not that" pointer. A test keeps it at 100%.
+- Lists: `snap_list_*` tools take `offset` and `response_format` (concise or detailed) and report `has_more` and `next_offset`. `snap_list_pixels`, `snap_list_catalogs` and `snap_list_product_sets` gained `limit`.
+- Results that are objects are also returned as `structuredContent` next to the text; list answers are `{ items, returned, total_matching, has_more, next_offset }`.
+- Ten read-only evaluation questions with known answers (`test/eval/questions.json`), run by the tests. README: examples, permissions, rate limits.
+
 - Safety: `snap_set_frequency_cap`, `snap_set_ad_schedule`, `snap_set_placement` and `snap_claim_ad_code` are now marked destructive (they overwrite settings or use up a single-use code). New optional `SNAP_MEDIA_DIR`: when set, media and customer-list files must be inside that folder (symbolic links resolved).
 
 ## 0.9.5 (2026-11-17)
