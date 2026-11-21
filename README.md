@@ -217,7 +217,7 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 - "Raise the daily budget of ad squad X to 40." (`snap_set_daily_budget`, previewed, with a warning if the amount is unusual)
 - "Undo the last change." (`snap_undo`)
 
-**Snapchat permissions.** The Snapchat login must have access to the ad account in Ads Manager. Reading needs any member role; creating and changing campaigns needs a role that can edit campaigns (Admin, or a member with the Campaign Manager role). Asking Snap for an item your login cannot see returns a 403 with a hint.
+**Snapchat permissions.** The Snapchat login must have access to the ad account in Ads Manager. Reading and changing both go through the login's own rights: if the login can edit campaigns in Ads Manager, so can this server; if it can only view, changes fail. Check the roles in Ads Manager under Members. Asking Snap for an item your login cannot see returns a 403 with a hint.
 
 **Rate limits.** Snap limits how many requests a login may send. The server retries reads on 429 and 5xx and honours Snap's `Retry-After`; writes are retried only on 429, never after a network failure (so a change is never applied twice). If Snap still refuses, the error says how long to wait.
 

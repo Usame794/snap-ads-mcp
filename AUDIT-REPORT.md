@@ -161,3 +161,20 @@ Status: PASS, FAIL, PARTIAL, N/A. "Evidence" names the file; line numbers are gi
 - The MCP Inspector was not run (blocked); the in-memory MCP client check above replaces it.
 - B2 and C3 were spot-checked, not checked for every tool.
 - Nothing was tested against the real Snap API, by design.
+
+## Phase 4 progress (branch `mcp-quality-upgrade`)
+Done, each in its own commit, with tests (370 passing):
+
+| ID | New status | What changed |
+|---|---|---|
+| E2 | PASS | `snap_set_frequency_cap`, `snap_set_ad_schedule`, `snap_set_placement`, `snap_claim_ad_code` now marked destructive. |
+| F4 | PASS (opt-in) | New `SNAP_MEDIA_DIR`: media and customer-list files must be inside it (symbolic links resolved). Not on by default, so nothing breaks for existing users. |
+| D2, D3, D5 | PASS | Snap HTTP errors end with a "Fix:" sentence; 429 says how long to wait. |
+| B1, B3, B6 | PASS | Every parameter has a description with its id source and units (a test enforces 100%); 22 tools got a "use this / not that" pointer. |
+| C4 | PARTIAL | `response_format` (concise or detailed) on all `snap_list_*` tools. Not yet on reports. |
+| C5 | PASS | `limit`, `offset`, `has_more`, `next_offset` on every list tool (the tools read all pages from Snap internally, then page the result). |
+| C7 | PARTIAL | Object results also come back as `structuredContent`. No `outputSchema` yet. |
+| H1 | PASS | `test/eval/questions.json`, ten read-only questions with known answers, run by the tests. |
+| H3 | PASS | README: examples, permissions, rate limits, paging. |
+
+Not done yet (waiting for your decision, or optional): A2/A3/A4 consolidation (a plan comes first, because it renames and merges tools), A6 renames, B5 YYYY-MM-DD date input, C3 units sweep, C6 shared truncation helper, `outputSchema`, and MCP Apps (G). Still not run: MCP Inspector.
