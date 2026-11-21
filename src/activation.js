@@ -39,6 +39,7 @@ export function scheduleOpensDelivery(current, patch, now = Date.now()) {
 export async function activationImpact(client, entity, items, policy, { now = Date.now() } = {}) {
   const line = (squad, why) => squadLine(squad, why, now);
   const started = new Map(); // squad id -> line
+  const squadCampaign = new Map(); // squad id -> campaign id
   const later = [];
   const campaignCaps = [];
   const campaigns = new Map();
@@ -50,12 +51,18 @@ export async function activationImpact(client, entity, items, policy, { now = Da
     if (entity === "campaign") {
       campaigns.set(obj.id, obj);
       const squads = (await client.listChildren("campaign", obj.id, "adsquad")).filter((s) => s.status === "ACTIVE");
-      for (const s of squads) started.set(s.id, line(s, `ACTIVE ad squad of campaign "${obj.name}"`));
+      for (const s of squads) {
+        started.set(s.id, line(s, `ACTIVE ad squad of campaign "${obj.name}"`));
+        squadCampaign.set(s.id, obj.id);
+      }
       if (obj.daily_budget_micro != null) campaignCaps.push({ campaign_id: obj.id, name: obj.name, campaign_daily_budget: money(obj.daily_budget_micro) });
       if (obj.lifetime_spend_cap_micro != null) campaignCaps.push({ campaign_id: obj.id, name: obj.name, campaign_lifetime_spend_cap: money(obj.lifetime_spend_cap_micro) });
     } else if (entity === "adsquad") {
       const parent = await campaign(obj.campaign_id);
-      if (parent.status === "ACTIVE") started.set(obj.id, line(obj, "its campaign is ACTIVE"));
+      if (parent.status === "ACTIVE") {
+        started.set(obj.id, line(obj, "its campaign is ACTIVE"));
+        squadCampaign.set(obj.id, obj.campaign_id);
+      }
       else later.push({ ...line(obj, `campaign "${parent.name}" is ${parent.status}`), starts: "when the campaign is enabled" });
     } else if (entity === "ad") {
       const squad = await client.getEntity("adsquad", obj.ad_squad_id);
@@ -63,14 +70,45 @@ export async function activationImpact(client, entity, items, policy, { now = Da
       if (squad.status === "ACTIVE" && parent.status === "ACTIVE") {
         const siblings = await client.listChildren("adsquad", squad.id, "ad");
         const alreadyDelivering = siblings.some((a) => a.id !== obj.id && a.status === "ACTIVE");
-        if (!alreadyDelivering) started.set(squad.id, line(squad, `ad "${obj.name}" would be its first ACTIVE ad`));
+        if (!alreadyDelivering) {
+          started.set(squad.id, line(squad, `ad "${obj.name}" would be its first ACTIVE ad`));
+          squadCampaign.set(squad.id, squad.campaign_id);
+        }
       } else {
         later.push({ ...line(squad, `ad squad is ${squad.status}, campaign is ${parent.status}`), starts: "when its ad squad and campaign are enabled" });
       }
     }
   }
   const lines = [...started.values()];
-  const total = round2(lines.reduce((n, l) => n + (l.counted_per_day ?? l.daily_budget), 0));
+  const counted = (l) => l.counted_per_day ?? l.daily_budget;
+  // Campaign-level daily budgets (the campaign has one budget and its ad squads have none). They start spending too, so they are
+  // counted and limited like an ad squad's: a campaign being enabled counts max(its squads' budgets, its own budget); an ad squad or
+  // ad that would be the first to deliver under an ACTIVE campaign with its own budget and no budget of its own counts that budget.
+  const campaignLines = [];
+  if (entity === "campaign") {
+    for (const obj of items) {
+      const cb = obj.daily_budget_micro > 0 ? money(obj.daily_budget_micro) : 0;
+      if (!cb) continue;
+      const squadsSum = lines.filter((l) => squadCampaign.get(l.adsquad_id) === obj.id).reduce((n, l) => n + counted(l), 0);
+      campaignLines.push({ campaign_id: obj.id, name: obj.name, campaign_daily_budget: cb, counted: round2(Math.max(0, cb - squadsSum)) });
+    }
+  } else {
+    const done = new Set();
+    for (const l of lines) {
+      const cid = squadCampaign.get(l.adsquad_id);
+      const camp = campaigns.get(cid);
+      const cb = camp?.daily_budget_micro > 0 ? money(camp.daily_budget_micro) : 0;
+      if (!cb || counted(l) > 0 || done.has(cid) || camp.status !== "ACTIVE") continue;
+      done.add(cid);
+      const others = (await client.listChildren("campaign", cid, "adsquad")).some((s) => s.status === "ACTIVE" && s.id !== l.adsquad_id);
+      campaignLines.push({ campaign_id: cid, name: camp.name, campaign_daily_budget: cb, counted: others ? 0 : cb });
+    }
+  }
+  const overCampaign = campaignLines.filter((c) => c.campaign_daily_budget > policy.maxDailyBudget && (entity === "campaign" || c.counted > 0));
+  if (overCampaign.length) {
+    throw new Error(`Refusing to enable: ${overCampaign.map((c) => `campaign "${c.name}" has a daily budget of ${c.campaign_daily_budget}`).join("; ")}, above the absolute limit of ${policy.maxDailyBudget} (SNAP_MAX_DAILY_BUDGET). Only the account owner can raise that limit, in .env, followed by a restart.`);
+  }
+  const total = round2(lines.reduce((n, l) => n + counted(l), 0) + campaignLines.reduce((n, c) => n + c.counted, 0));
   const lifetime = round2(lines.reduce((n, l) => n + (l.lifetime_budget ?? 0), 0));
   const over = lines.filter((l) => l.daily_budget > policy.maxDailyBudget);
   if (over.length) {
@@ -89,6 +127,7 @@ export async function activationImpact(client, entity, items, policy, { now = Da
     ad_squads_that_start_delivering: lines,
     starts_later: later.length ? later : undefined,
     campaign_level_budgets: campaignCaps.length ? campaignCaps : undefined,
+    campaign_budgets_counted: campaignLines.some((c) => c.counted > 0) ? campaignLines : undefined,
     limit_per_call: policy.maxActivationDailyBudget,
     note: "Amounts are in account currency. Ad squads that are already delivering are not counted. A squad with only a lifetime budget is counted at its pace per day (counted_per_day).",
   };

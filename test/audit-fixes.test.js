@@ -47,3 +47,49 @@ test("F2: setEnvValue refuses line breaks and control characters in a value, and
   setEnvValue("SNAP_REFRESH_TOKEN", "fine.token-value_1", file);
   assert.deepEqual(Object.keys(readEnvFile(file)), ["SNAP_REFRESH_TOKEN"]);
 });
+
+import { setup, sampleWorld, ACC } from "./helpers/harness.js";
+
+function cboWorld(budget = 50_000, squadBudget = undefined) {
+  const w = sampleWorld();
+  w.campaigns.cbo = { id: "cbo", name: "CBO", status: "PAUSED", ad_account_id: ACC, daily_budget_micro: budget * 1e6, updated_at: "t0" };
+  w.adsquads.q1 = { id: "q1", name: "Q1", status: "ACTIVE", campaign_id: "cbo", targeting: {}, updated_at: "t0", ...(squadBudget ? { daily_budget_micro: squadBudget * 1e6 } : {}) };
+  return w;
+}
+
+test("F3: enabling a campaign with its own daily budget is counted and limited, not waved through", async () => {
+  const h = await setup({ world: cboWorld(), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.match(r.error ?? "", /campaign "CBO" has a daily budget of 50000.*SNAP_MAX_DAILY_BUDGET/);
+  assert.equal(h.db.campaigns.cbo.status, "PAUSED");
+  assert.equal(h.writes().length, 0);
+});
+
+test("F3: a campaign budget within the limits is counted in the amount that starts delivering", async () => {
+  const h = await setup({ world: cboWorld(80), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const preview = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.equal(preview.data.activation.daily_budget_that_starts_delivering, 80);
+  assert.equal(preview.data.spend_impact.adds_daily_budget, 80);
+  const squads = await h.call("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" });
+  assert.equal(squads.data.activation.daily_budget_that_starts_delivering, 80, "campaigns without their own budget are counted as before");
+});
+
+test("F3: when the squads carry the budget, the campaign budget does not count twice", async () => {
+  const h = await setup({ world: cboWorld(60, 60), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.equal(r.data.activation.daily_budget_that_starts_delivering, 60, "max of the squads' budgets and the campaign budget, not the sum");
+});
+
+test("F3: the first ad squad to deliver under an ACTIVE campaign with its own budget counts that budget", async () => {
+  const w = cboWorld(70);
+  w.campaigns.cbo.status = "ACTIVE";
+  w.adsquads.q1.status = "PAUSED";
+  const h = await setup({ world: w, env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "adsquad", id: "q1", status: "ACTIVE" });
+  assert.equal(r.data.activation.daily_budget_that_starts_delivering, 70);
+  const big = cboWorld(5000);
+  big.campaigns.cbo.status = "ACTIVE";
+  big.adsquads.q1.status = "PAUSED";
+  const h2 = await setup({ world: big, env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  assert.match((await h2.call("snap_set_status", { entity: "adsquad", id: "q1", status: "ACTIVE" })).error ?? "", /campaign "CBO" has a daily budget of 5000/);
+});
