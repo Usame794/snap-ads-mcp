@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.9 (2026-11-21)
 
 Fixes from an independent security audit of 0.9.6 (every finding was reproduced with a test first):
 - **Forged login values (F2, high).** The local login listener accepts only a value shaped like a token, and writing a settings value with a line break or control character is refused, so a sealed value can no longer add lines such as `SNAP_HUMAN_APPROVAL=off` to the settings file.
