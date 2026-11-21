@@ -38,7 +38,8 @@
         "SNAP_CLIENT_SECRET": "${user_config.client_secret}",
         "SNAP_MAX_DAILY_BUDGET": "${user_config.max_daily_budget}",
         "SNAP_DEFAULT_COUNTRY": "${user_config.default_country}",
-        "SNAP_READ_ONLY": "${user_config.read_only}"
+        "SNAP_READ_ONLY": "${user_config.read_only}",
+        "SNAP_TOOLSETS": "${user_config.toolsets}"
       }
     }
   },
@@ -76,6 +77,13 @@
       "title": "Read-only",
       "description": "Off (the default): Claude can create and change campaigns, but every change is previewed and needs your approval, and everything it creates starts paused. Turn on to let Claude read and preview only.",
       "default": false,
+      "required": true
+    },
+    "toolsets": {
+      "type": "string",
+      "title": "Tool set",
+      "description": "core = about 40 everyday tools (read, check, launch campaigns). Type all to show every tool, or a list such as core,reports.",
+      "default": "core",
       "required": true
     }
   },

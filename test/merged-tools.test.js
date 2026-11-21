@@ -78,3 +78,38 @@ test("SNAP_TOOLSETS still hides merged tools by group, and legacy aliases follow
   assert.ok(names.includes("snap_report") && names.includes("snap_report_daily"));
   assert.ok(!names.includes("snap_set_status") && !names.includes("snap_set_status_bulk"));
 });
+
+import { CORE_TOOLS } from "../src/toolsets.js";
+
+test("core: every core tool exists, the set is about 40, and it covers reading, checking and launching", async () => {
+  const all = await setup();
+  const names = new Set((await all.client.listTools()).tools.map((x) => x.name));
+  assert.deepEqual(CORE_TOOLS.filter((n) => !names.has(n)), [], "every core tool exists");
+  assert.ok(CORE_TOOLS.length >= 30 && CORE_TOOLS.length <= 45, `${CORE_TOOLS.length} core tools`);
+  for (const need of ["snap_ping", "snap_report", "snap_health_check", "snap_create_campaign", "snap_create_adsquad", "snap_create_creative", "snap_create_ad", "snap_upload_media", "snap_set_status", "snap_set_daily_budget", "snap_undo"]) assert.ok(CORE_TOOLS.includes(need), need);
+  const core = await setup({ env: { SNAP_TOOLSETS: "core" } });
+  assert.deepEqual((await core.client.listTools()).tools.map((x) => x.name).sort(), [...CORE_TOOLS].sort());
+});
+
+test("core can be combined with a group, and 'all' shows everything", async () => {
+  const both = await setup({ env: { SNAP_TOOLSETS: "core,checks" } });
+  const names = (await both.client.listTools()).tools.map((x) => x.name);
+  assert.ok(names.includes("snap_set_status") && names.includes("snap_billing_check"));
+  assert.ok(!names.includes("snap_set_frequency_cap"));
+  const all = await setup({ env: { SNAP_TOOLSETS: "all" } });
+  assert.equal((await all.client.listTools()).tools.length, 76);
+});
+
+test("the Desktop extension starts with the core tool set and says how to see everything", async () => {
+  const { readFileSync } = await import("node:fs");
+  const m = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
+  assert.equal(m.user_config.toolsets.default, "core");
+  assert.match(m.user_config.toolsets.description, /all/);
+  assert.equal(m.server.mcp_config.env.SNAP_TOOLSETS, "${user_config.toolsets}");
+});
+
+test("every tool a playbook names is in the core set, so every playbook can run with core only", async () => {
+  const { readFileSync } = await import("node:fs");
+  const used = [...new Set(readFileSync(new URL("../src/prompts.js", import.meta.url), "utf8").match(/snap_[a-z_]+/g))];
+  assert.deepEqual(used.filter((n) => !CORE_TOOLS.includes(n)), []);
+});

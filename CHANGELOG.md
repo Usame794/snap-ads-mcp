@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Core tool set.** `SNAP_TOOLSETS=core` shows 44 everyday tools (read, check, launch campaigns, undo, and every tool the playbooks use); it can be combined with groups (`core,reports`). The Claude Desktop extension now starts with `core`; type `all` in its Tool set field to see every tool.
+
 - **Fewer tools (85 to 76).** Tools that did the same job are now one: `snap_set_status`, `snap_rename`, `snap_set_schedule`, `snap_exclude_segments` and `snap_set_daily_budget` take `id` for one item or `ids` (`adsquad_ids`) for up to 20, and `snap_report` takes `view` = table, daily, hourly, compare or audience. The old tools do the work as before (every limit, preview and approval is the same); only the names changed. The old names are hidden unless `SNAP_LEGACY_TOOLS=1`, and then work as deprecated aliases.
 
 ## 0.9.6 (2026-11-21)
