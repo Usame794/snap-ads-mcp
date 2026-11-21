@@ -241,6 +241,19 @@ export function registerTools(server, client, env = process.env) {
   const logFile = env.SNAP_LOG_FILE || (env.SNAP_ENV_FILE ? `${env.SNAP_ENV_FILE}.log.jsonl` : LOG_FILE);
   const approvals = new ApprovalStore({ ttlMs: policy.approvalTtlSeconds * 1000, repeatWindowMs: policy.repeatWindowSeconds * 1000 });
   const ownership = new Ownership(client);
+  // Pixel and audience ids given as arguments must belong to the configured ad account. (A pixel set in the settings file is the
+  // owner's own choice and is not re-checked.) Snap may refuse a foreign id itself, but this server does not rely on that.
+  const assertPixel = async (pixelId) => {
+    if (!pixelId || pixelId === cfg.pixel) return;
+    if (!(await listPixels(client, account())).some((p) => p.id === pixelId)) throw new Error(`Pixel ${pixelId} is not one of this ad account's pixels (see snap_list_pixels); refusing to use it.`);
+  };
+  const assertSegments = async (ids) => {
+    const wanted = [...new Set((ids ?? []).filter(Boolean))];
+    if (!wanted.length) return;
+    const have = new Set((await listSegments(client, account(), { minSize: 0 })).map((s) => s.id));
+    const missing = wanted.filter((s) => !have.has(s));
+    if (missing.length) throw new Error(`Audience ${missing.join(", ")} is not one of this ad account's audiences (see snap_list_segments); refusing to use it.`);
+  };
   const history = (entityId, field) => windowStartMicro(logFile, entityId, field);
 
   const defaultCountries = () => {
@@ -943,6 +956,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async (a) => {
+      await assertPixel(a.pixel_id);
       const pixel = a.pixel_id ?? cfg.pixel;
       const event = buildTestEvent({ eventName: a.event_name, sourceUrl: a.event_source_url, email: a.email, value: a.value, currency: a.currency, orderId: a.order_id });
       return {
@@ -1160,7 +1174,10 @@ export function registerTools(server, client, env = process.env) {
       shape: { adsquad_id: id(), segment_ids: z.array(id()).min(1) },
       destructive: true,
     },
-    ({ adsquad_id, segment_ids }) => change("adsquad", adsquad_id, (cur) => planExcludeSegments(cur, segment_ids)),
+    async ({ adsquad_id, segment_ids }) => {
+      await assertSegments(segment_ids);
+      return change("adsquad", adsquad_id, (cur) => planExcludeSegments(cur, segment_ids));
+    },
   );
 
   write(
@@ -1624,6 +1641,8 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async (a) => {
+      await assertPixel(a.pixel_id);
+      await assertSegments([...(a.include_segment_ids ?? []), ...(a.exclude_segment_ids ?? [])]);
       const campaign = await client.getEntity("campaign", a.campaign_id);
       if (a.product_set_id) {
         const catalogId = campaign.product_properties?.catalog_id;
@@ -1663,8 +1682,10 @@ export function registerTools(server, client, env = process.env) {
       },
       destructive: true,
     },
-    ({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions }) =>
-      change("adsquad", adsquad_id, (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions })),
+    async ({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions }) => {
+      await assertSegments(include_segments);
+      return change("adsquad", adsquad_id, (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions }));
+    },
   );
 
   write(
@@ -1720,7 +1741,10 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_bulk_exclude_segments",
     { description: "Add the same buyer-exclusion audiences to up to 20 ad squads. Per-item preview (skips squads that already exclude them); stops at the first failure. Previews unless confirm=true.", shape: { adsquad_ids: idsField, segment_ids: z.array(id()).min(1) }, destructive: true },
-    ({ adsquad_ids, segment_ids }) => bulk("adsquad", adsquad_ids, plans.exclude(segment_ids)),
+    async ({ adsquad_ids, segment_ids }) => {
+      await assertSegments(segment_ids);
+      return bulk("adsquad", adsquad_ids, plans.exclude(segment_ids));
+    },
   );
 
   write(
@@ -1825,6 +1849,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ name, events, retention_days, pixel_id }) => {
+      await assertPixel(pixel_id);
       const obj = buildPixelAudience({ adAccountId: account(), pixelId: pixel_id ?? cfg.pixel, name, events, retentionDays: retention_days });
       return {
         preview: { applied: false, dry_run: true, would_create: { name: obj.name, events, retention_days, pixel_id: obj.pixel_id }, note: "Nothing created. Re-run with confirm=true." },

@@ -320,3 +320,22 @@ test("F11: a name that resolves to a private address is still not contacted, and
   assert.equal(isPrivateAddress("64:ff9b::a00:1"), true);
   assert.equal(isPrivateAddress("2606:4700::1111"), false);
 });
+
+test("F10: a pixel or audience id that is not this ad account's is refused", async () => {
+  const w = sampleWorld();
+  w.pixels = { "pix-own": { id: "pix-own", name: "Own pixel", status: "ACTIVE" } };
+  const h = await setup({ world: w });
+  const foreignAudience = await h.call("snap_exclude_segments", { adsquad_id: "s1", segment_ids: ["999999"] });
+  assert.match(foreignAudience.error ?? "", /Audience 999999 is not one of this ad account's audiences/);
+  const foreignPixel = await h.call("snap_create_pixel_audience", { name: "Cart abandoners", events: ["ADD_CART"], pixel_id: "someone-elses-pixel" });
+  assert.match(foreignPixel.error ?? "", /Pixel someone-elses-pixel is not one of this ad account's pixels/);
+  const targeting = await h.call("snap_set_targeting", { adsquad_id: "s1", include_segments: ["999999"] });
+  assert.match(targeting.error ?? "", /Audience 999999/);
+  const bulk = await h.call("snap_exclude_segments", { adsquad_ids: ["s1"], segment_ids: ["999999"] });
+  assert.match(bulk.error ?? "", /Audience 999999/);
+  assert.equal(h.writes().length, 0);
+  const own = await h.call("snap_exclude_segments", { adsquad_id: "s1", segment_ids: ["111"] });
+  assert.ok(own.data?.approval_token, JSON.stringify(own).slice(0, 200));
+  const ownPixel = await h.call("snap_create_pixel_audience", { name: "Cart abandoners", events: ["ADD_CART"], pixel_id: "pix-own" });
+  assert.ok(ownPixel.data?.approval_token, JSON.stringify(ownPixel).slice(0, 200));
+});
