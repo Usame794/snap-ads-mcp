@@ -339,3 +339,31 @@ test("F10: a pixel or audience id that is not this ad account's is refused", asy
   const ownPixel = await h.call("snap_create_pixel_audience", { name: "Cart abandoners", events: ["ADD_CART"], pixel_id: "pix-own" });
   assert.ok(ownPixel.data?.approval_token, JSON.stringify(ownPixel).slice(0, 200));
 });
+
+test("F16: a plain end date includes that whole day; a plain start date is the start of the day", async () => {
+  const h = await setup({ env: { SNAP_REPORT_UTC_OFFSET: "+03:00" } });
+  await h.raw("snap_get_stats", { entity: "campaign", id: "c1", start_time: "2026-10-30", end_time: "2026-10-30" });
+  const call = h.calls.filter((c) => c.path === "/campaigns/c1/stats").at(-1);
+  assert.equal(call.query.start_time, "2026-10-30T00:00:00+03:00");
+  assert.equal(call.query.end_time, "2026-10-31T00:00:00+03:00", "ending on the 30th includes the 30th");
+  await h.raw("snap_get_stats", { entity: "campaign", id: "c1", start_time: "2026-12-31", end_time: "2026-12-31" });
+  assert.equal(h.calls.filter((c) => c.path === "/campaigns/c1/stats").at(-1).query.end_time, "2027-01-01T00:00:00+03:00", "across a year end");
+});
+
+test("F16: a refresh token rotated by Snap is kept, in both login modes, and only if it looks like a token", async () => {
+  const json = (b, s = 200) => ({ ok: s < 300, status: s, json: async () => b, headers: { get: () => null } });
+  const saved = [];
+  const own = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "old-refresh-token-1" }, fetchImpl: async () => json({ access_token: "a", expires_in: 1800, refresh_token: "new-refresh-token-2" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  assert.equal(await own.accessToken(), "a");
+  assert.deepEqual(saved, ["new-refresh-token-2"]);
+  assert.equal(own.env.SNAP_REFRESH_TOKEN, "new-refresh-token-2");
+  const brokered = new SnapClient({ env: { SNAP_REFRESH_TOKEN: "old-refresh-token-1", SNAP_BROKER_URL: "https://login.example" }, fetchImpl: async () => json({ access_token: "b", expires_in: 1800, refresh_token: "brokered-new-token-3" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  assert.equal(await brokered.accessToken(), "b");
+  assert.equal(saved.at(-1), "brokered-new-token-3");
+  const odd = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "old-refresh-token-1" }, fetchImpl: async () => json({ access_token: "c", expires_in: 1800, refresh_token: "has a space\nSNAP_X=1" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  await odd.accessToken();
+  assert.equal(saved.length, 2, "a value that does not look like a token is ignored");
+  const same = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "same-refresh-token-1" }, fetchImpl: async () => json({ access_token: "d", expires_in: 1800, refresh_token: "same-refresh-token-1" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  await same.accessToken();
+  assert.equal(saved.length, 2, "an unchanged token is not saved again");
+});

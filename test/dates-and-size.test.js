@@ -9,7 +9,7 @@ test("a plain date is accepted where Snap needs a time on the hour", async () =>
   assert.ok(!r.isError, r.content?.[0]?.text);
   const call = t.calls.filter((c) => c.path === "/campaigns/c1/stats").at(-1);
   assert.equal(call.query.start_time, "2026-10-19T00:00:00+03:00");
-  assert.equal(call.query.end_time, "2026-10-20T00:00:00+03:00");
+  assert.equal(call.query.end_time, "2026-10-21T00:00:00+03:00", "an end date includes that whole day");
 });
 
 test("a full ISO date-time is passed through unchanged", async () => {

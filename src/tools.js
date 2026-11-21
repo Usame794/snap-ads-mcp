@@ -18,6 +18,7 @@ import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativePr
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { assertFileAllowed } from "./media-dir.js";
 import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
+import { shiftIso } from "./fatigue.js";
 import { APP_TOOLS, APP_URIS, registerApps, uiMeta } from "./apps.js";
 import { boardData, dashboardData } from "./dashboard.js";
 import { changeHistory, setupCheck } from "./interactive.js";
@@ -126,11 +127,15 @@ export function registerTools(server, client, env = process.env) {
     }
     return next;
   };
-  // A plain date (YYYY-MM-DD) is accepted wherever Snap needs a time on the hour: it means 00:00 that day in SNAP_REPORT_UTC_OFFSET.
-  const DATE_KEYS = ["start_time", "end_time", "current_start", "current_end", "previous_start", "previous_end"];
+  // A plain date (YYYY-MM-DD) is accepted wherever Snap needs a time on the hour, in SNAP_REPORT_UTC_OFFSET. A start date means the
+  // beginning of that day. An end date means the end of that day (the beginning of the next), so "end on the 30th" includes the 30th.
+  const START_KEYS = ["start_time", "current_start", "previous_start"];
+  const END_KEYS = ["end_time", "current_end", "previous_end"];
+  const PLAIN_DATE = /^\d{4}-\d{2}-\d{2}$/;
   const withDates = (handler) => (args, ...more) => {
     let next = args;
-    for (const k of DATE_KEYS) if (typeof next?.[k] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(next[k])) next = { ...next, [k]: `${next[k]}T00:00:00${policy.reportUtcOffset}` };
+    for (const k of START_KEYS) if (typeof next?.[k] === "string" && PLAIN_DATE.test(next[k])) next = { ...next, [k]: `${next[k]}T00:00:00${policy.reportUtcOffset}` };
+    for (const k of END_KEYS) if (typeof next?.[k] === "string" && PLAIN_DATE.test(next[k])) next = { ...next, [k]: shiftIso(`${next[k]}T00:00:00${policy.reportUtcOffset}`, 86_400_000) };
     return handler(next, ...more);
   };
   const LIST_OUTPUT = z.object({

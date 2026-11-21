@@ -136,11 +136,12 @@ const MAX_LIST_PAGES = 20;
 const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export class SnapClient {
-  constructor({ env = process.env, fetchImpl = fetch, beforeToken, sleep = realSleep, timeoutMs = 60_000, uploadTimeoutMs = 600_000 } = {}) {
+  constructor({ env = process.env, fetchImpl = fetch, beforeToken, onNewRefreshToken, sleep = realSleep, timeoutMs = 60_000, uploadTimeoutMs = 600_000 } = {}) {
     this.env = env;
     this.timeoutMs = timeoutMs;
     this.uploadTimeoutMs = uploadTimeoutMs;
     this.beforeToken = beforeToken;
+    this.onNewRefreshToken = onNewRefreshToken;
     this.sleep = sleep;
     this.fetch = fetchImpl;
     this.token = null;
@@ -203,6 +204,18 @@ export class SnapClient {
     throw last;
   }
 
+  // If Snap answers a refresh with a new refresh token, the old one may stop working: keep the new one (and tell the owner of the
+  // client, which saves it to the settings file). Only a value shaped like a token is accepted.
+  keepRotatedToken(newToken, current) {
+    if (typeof newToken !== "string" || newToken === current || !/^[A-Za-z0-9._~+/=-]{10,4096}$/.test(newToken)) return;
+    this.env.SNAP_REFRESH_TOKEN = newToken;
+    try {
+      this.onNewRefreshToken?.(newToken);
+    } catch (e) {
+      process.stderr.write(`[ads-mcp-for-snapchat] Snap issued a new refresh token and it could not be saved (${String(e?.code ?? e?.message).slice(0, 80)}). Run setup again if the connection stops working.\n`);
+    }
+  }
+
   async accessToken() {
     if (this.token && Date.now() < this.tokenExpiry - 60_000) return this.token;
     this.beforeToken?.();
@@ -212,6 +225,7 @@ export class SnapClient {
       const broker = brokerUrlFrom(this.env);
       if (broker) {
         const data = await refreshViaBroker(broker, SNAP_REFRESH_TOKEN, this.fetch);
+        this.keepRotatedToken(data.refresh_token, SNAP_REFRESH_TOKEN);
         this.token = data.access_token;
         this.tokenExpiry = Date.now() + (data.expires_in ?? 1800) * 1000;
         return this.token;
@@ -234,6 +248,7 @@ export class SnapClient {
     if (!res.ok || !data.access_token) {
       throw new Error(`Snap token refresh failed (${res.status}): ${data.error_description || data.error || "no detail"}`);
     }
+    this.keepRotatedToken(data.refresh_token, SNAP_REFRESH_TOKEN);
     this.token = data.access_token;
     this.tokenExpiry = Date.now() + (data.expires_in ?? 1800) * 1000;
     return this.token;

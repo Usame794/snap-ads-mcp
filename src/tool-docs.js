@@ -1,6 +1,7 @@
 // Plain-language documentation added to every tool at registration: a description for each parameter that has none, and a short
 // "use this / not that" pointer for tools whose description lacks one. One place, so wording stays consistent.
-const TIME = "A day (YYYY-MM-DD, meaning 00:00 that day in SNAP_REPORT_UTC_OFFSET) or an ISO date-time on the hour with an offset, such as 2026-10-19T00:00:00+03:00 (Snap needs whole hours).";
+const START = "A day (YYYY-MM-DD: the start of that day in SNAP_REPORT_UTC_OFFSET) or an ISO date-time on the hour with an offset, such as 2026-10-19T00:00:00+03:00 (Snap needs whole hours).";
+const END = "A day (YYYY-MM-DD: the whole day is included, so it means the start of the next day in SNAP_REPORT_UTC_OFFSET) or an ISO date-time on the hour with an offset, such as 2026-10-20T00:00:00+03:00 (Snap needs whole hours).";
 export const PARAM_DOCS = {
   entity: "What to act on: campaign, adsquad or ad (ad squads are Snapchat's ad sets).",
   id: "Id of the item named by entity. Get it from snap_list_campaigns, snap_list_adsquads or snap_list_ads.",
@@ -30,11 +31,11 @@ export const PARAM_DOCS = {
   name_contains: "Only items whose name contains this text (not case sensitive).",
   limit: "Most rows to return. Lower it for a shorter answer; the answer says if more exist.",
   status: "ACTIVE or PAUSED. Items you create always start PAUSED.",
-  start_time: TIME,
-  end_time: TIME,
+  start_time: START,
+  end_time: END,
   start_date: "First day, as YYYY-MM-DD, in the time zone set by SNAP_REPORT_UTC_OFFSET.",
   end_date: "Last day, as YYYY-MM-DD, in the time zone set by SNAP_REPORT_UTC_OFFSET.",
-  current_start: TIME, current_end: TIME, previous_start: TIME, previous_end: TIME,
+  current_start: START, current_end: END, previous_start: START, previous_end: END,
   days: "How many whole days back to look, counted from the start of today in SNAP_REPORT_UTC_OFFSET.",
   baseline_days: "How many earlier days to compare against.",
   stale_days: "A list not refreshed for this many days counts as stale.",
