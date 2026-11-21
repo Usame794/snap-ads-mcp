@@ -7,7 +7,7 @@ const OLD = ["snap_set_status_bulk", "snap_bulk_rename", "snap_bulk_set_schedule
 test("old tool names are hidden by default and the merged tools take their place", async () => {
   const t = await setup();
   const names = (await t.client.listTools()).tools.map((x) => x.name);
-  assert.equal(names.length, 78);
+  assert.equal(names.length, 80);
   for (const old of OLD) assert.ok(!names.includes(old), `${old} is hidden`);
   for (const merged of ["snap_set_status", "snap_rename", "snap_set_schedule", "snap_exclude_segments", "snap_set_daily_budget", "snap_report"]) assert.ok(names.includes(merged), merged);
 });
@@ -15,7 +15,7 @@ test("old tool names are hidden by default and the merged tools take their place
 test("SNAP_LEGACY_TOOLS=1 shows the old names as deprecated aliases that point to the new tool", async () => {
   const t = await setup({ env: { SNAP_LEGACY_TOOLS: "1" } });
   const tools = (await t.client.listTools()).tools;
-  assert.equal(tools.length, 87);
+  assert.equal(tools.length, 89);
   for (const old of OLD) assert.match(tools.find((x) => x.name === old).description, /^DEPRECATED, use snap_/, old);
 });
 
@@ -97,7 +97,7 @@ test("core can be combined with a group, and 'all' shows everything", async () =
   assert.ok(names.includes("snap_set_status") && names.includes("snap_billing_check"));
   assert.ok(!names.includes("snap_set_frequency_cap"));
   const all = await setup({ env: { SNAP_TOOLSETS: "all" } });
-  assert.equal((await all.client.listTools()).tools.length, 78);
+  assert.equal((await all.client.listTools()).tools.length, 80);
 });
 
 test("the Desktop extension starts with the core tool set and says how to see everything", async () => {

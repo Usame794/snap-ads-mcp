@@ -84,7 +84,22 @@
     if (window.ResizeObserver) new ResizeObserver(resize).observe(document.body);
   }
 
+  // Money in the account's currency: whole amounts stay whole; KWD, BHD, OMR and JOD keep their 3 decimals.
+  const THREE = { KWD: 1, BHD: 1, OMR: 1, JOD: 1 };
+  const money = (n, cur) => {
+    if (n === null || n === undefined || Number.isNaN(Number(n))) return "n/a";
+    const d = cur && THREE[cur] ? 3 : 2;
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }) + (cur ? " " + cur : "");
+  };
+  // Calls a tool and returns { ok, data, text }. Every change still goes through the server's preview and approval token.
+  const run = async (name, args) => {
+    const r = await request("tools/call", { name, arguments: args || {} });
+    return { ok: !(r && r.isError), data: dataOf(r), text: textOf(r) };
+  };
+
   window.snapApp = {
+    money,
+    run,
     connect,
     el,
     num,

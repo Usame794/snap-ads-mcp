@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ROOT } from "../src/env.js";
+import { CORE_TOOLS } from "../src/toolsets.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 
@@ -28,10 +29,10 @@ test("the extension's environment starts the server in every state of the Tool s
   const env = manifest.server.mcp_config.env;
   assert.equal(env.SNAP_TOOLSETS_DEFAULT, "core");
   const base = { SNAP_MAX_DAILY_BUDGET: "500", SNAP_READ_ONLY: "false", SNAP_TOOLSETS_DEFAULT: "core" };
-  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "${user_config.toolsets}" }), 46, "never saved (placeholder left in place): core");
-  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "" }), 46, "empty: core");
-  assert.equal(await toolCount({ ...base }), 46, "missing: core");
-  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "core" }), 46);
-  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "all" }), 78, "a real value wins over the default");
-  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "core,reports" }) > 46, true);
+  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "${user_config.toolsets}" }), CORE_TOOLS.length, "never saved (placeholder left in place): core");
+  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "" }), CORE_TOOLS.length, "empty: core");
+  assert.equal(await toolCount({ ...base }), CORE_TOOLS.length, "missing: core");
+  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "core" }), CORE_TOOLS.length);
+  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "all" }), 80, "a real value wins over the default");
+  assert.equal(await toolCount({ ...base, SNAP_TOOLSETS: "core,reports" }) > CORE_TOOLS.length, true);
 });

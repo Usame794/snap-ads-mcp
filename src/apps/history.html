@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change history</title>
+<style>
+:root{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb;--fb-warnbg:#fff7e8;--fb-warnline:#f0d9ad}
+@media (prefers-color-scheme:dark){:root{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff;--fb-warnbg:#3a2f1c;--fb-warnline:#6b5527}}
+:root[data-theme=light]{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb;--fb-warnbg:#fff7e8;--fb-warnline:#f0d9ad}
+:root[data-theme=dark]{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff;--fb-warnbg:#3a2f1c;--fb-warnline:#6b5527}
+:root{--bg:var(--color-background-primary,var(--fb-bg));--bg2:var(--color-background-secondary,var(--fb-bg2));--text:var(--color-text-primary,var(--fb-text));--muted:var(--color-text-secondary,var(--fb-muted));--border:var(--color-border-primary,var(--fb-border));--good:var(--color-text-success,var(--fb-good));--bad:var(--color-text-danger,var(--fb-bad));--warn:var(--color-text-warning,var(--fb-warn));--warnbg:var(--fb-warnbg);--warnline:var(--fb-warnline)}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+h1{font-size:17px;margin:0}.sub{color:var(--muted);font-size:12px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px}
+.badge{display:inline-block;padding:1px 10px;border-radius:999px;font-size:11px;border:1px solid var(--warn);color:var(--warn)}
+.badge.done{border-color:var(--good);color:var(--good)}.badge.off{border-color:var(--border);color:var(--muted)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border);margin-right:6px}
+.pill.on{color:var(--good);border-color:var(--good)}.pill.flag{border-color:var(--warn);color:var(--warn)}
+.impact{background:var(--warnbg);border:1px solid var(--warnline);border-radius:10px;padding:10px 12px;font-weight:600;margin:10px 0}
+.impact.calm{background:var(--bg);border-color:var(--border);font-weight:500}
+dl{margin:10px 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}
+dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+pre{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px}
+.track{height:10px;background:var(--border);border-radius:999px;overflow:hidden;display:flex}
+.track span{display:block;height:100%}
+.warn{color:var(--warn);margin:6px 0}.err{color:var(--bad);margin:6px 0}.ok{color:var(--good);margin:6px 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+button{min-height:44px;min-width:44px;padding:0 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.link{border:0;background:none;color:var(--accent);padding:0;min-height:32px}
+button.chip{min-height:36px;border-radius:999px;padding:0 12px}
+button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.row.open{border-color:var(--accent)}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.name{font-weight:650;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:12px;margin-top:2px}
+.panel{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.stepper{display:flex;align-items:center;border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+.stepper button{border:0;background:none;font-size:18px}
+.skeleton{background:linear-gradient(90deg,var(--bg2),var(--border),var(--bg2));background-size:200% 100%;animation:sk 1.2s linear infinite;border-radius:12px;min-height:72px;margin-bottom:10px}
+@keyframes sk{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+
+</style>
+</head>
+<body>
+<main>
+  <div class="bar"><div><h1>What changed</h1><div class="sub" id="sub">Loading...</div></div></div>
+  <div class="seg" id="filters" role="group" aria-label="Filter" style="margin-bottom:12px"></div>
+  <section id="list" aria-live="polite"><div class="skeleton"></div><div class="skeleton"></div></section>
+  <p class="sub">Creates, copies and deletes cannot be undone. Every undo previews first and is checked against the same limits as any change.</p>
+</main>
+<!--BRIDGE-->
+<script>
+(function () {
+  const { el } = window.snapApp;
+  const $ = (id) => document.getElementById(id);
+  const state = { data: null, filter: "all", open: {}, undo: null };
+  const KINDS = [["all", "All"], ["budget", "Budgets"], ["status", "On / off"], ["targeting", "Targeting"], ["schedule", "Schedule"], ["create", "Created"]];
+  const when = (iso) => { const d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+
+  async function reload() {
+    try {
+      const r = await window.snapApp.run("snap_change_history", { limit: 100 });
+      if (r.ok) state.data = r.data; else $("sub").textContent = r.text;
+    } catch (e) { $("sub").textContent = "Could not load: " + e.message; }
+    render();
+  }
+
+  function render() {
+    const f = $("filters"); f.textContent = "";
+    f.append(...KINDS.map(([k, l]) => el("button", { type: "button", class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; state.undo = null; render(); } }, l)));
+    const list = $("list"); list.textContent = "";
+    const d = state.data;
+    if (!d) return;
+    $("sub").textContent = d.summary;
+    const items = (d.items || []).filter((x) => state.filter === "all" || x.type === state.filter);
+    if (!items.length) list.append(el("div", { class: "sub" }, "No changes of this kind yet."));
+    for (const x of items) list.append(entry(x));
+    window.snapApp.resize();
+  }
+
+  function entry(x) {
+    const key = x.at + "|" + x.id;
+    const box = el("div", { class: "row" + (state.undo && state.undo.key === key ? " open" : ""), style: x.undone ? "opacity:.7" : "" });
+    const right = el("div", { style: "display:flex;gap:6px" });
+    if (x.fields && x.fields.length) right.append(el("button", { type: "button", "aria-expanded": String(!!state.open[key]), onclick: () => { state.open[key] = !state.open[key]; render(); } }, state.open[key] ? "Hide" : "Before / after"));
+    if (x.undo_position && !x.undone) right.append(el("button", { type: "button", onclick: () => undoPreview(x, key) }, "Undo"));
+    box.append(el("div", { class: "top" },
+      el("div", { style: "min-width:0;flex:1 1 300px" },
+        el("div", { class: "sub" }, when(x.at) + " · " + x.type + (x.undone ? " · undone" : "") + (x.verified === false ? " · not confirmed by Snap" : "")),
+        el("div", { class: "name", dir: "auto" }, x.name || x.entity + " " + (x.id || "")),
+        el("div", { dir: "auto" }, x.summary)),
+      right));
+    if (state.open[key]) {
+      box.append(el("div", { class: "panel" }, el("dl", null, [el("dt", null, "Field"), el("dd", { class: "sub" }, "Before → after")], x.fields.map((f) => [el("dt", null, f.field), el("dd", { dir: "auto" }, f.before + " → " + f.after)]))));
+    }
+    const u = state.undo && state.undo.key === key ? state.undo : null;
+    if (u) box.append(undoPanel(x, u));
+    return box;
+  }
+
+  function undoPanel(x, u) {
+    const p = el("div", { class: "panel" });
+    if (u.busy) { p.append(el("div", { class: "sub" }, u.busy)); return p; }
+    if (u.error) { p.append(el("div", { class: "err" }, u.error), el("div", { class: "btns" }, el("button", { type: "button", onclick: () => { state.undo = null; render(); } }, "Close"))); return p; }
+    if (u.done) { p.append(el("div", { class: "ok" }, "Undone.")); return p; }
+    const r = u.preview;
+    p.append(el("div", null, "Undo reverts: ", el("b", { dir: "auto" }, String(r.change || "").replace(/^undo:\s*/, ""))));
+    if (r.impact_line) p.append(el("div", { class: "impact" + (/^Adds/.test(r.impact_line) ? "" : " calm") }, r.impact_line));
+    if (r.read_only) p.append(el("div", { class: "warn" }, r.read_only));
+    p.append(el("div", { class: "btns" }, el("button", { type: "button", class: "primary", disabled: !r.approval_token || !!r.read_only, onclick: () => undoConfirm(x, u) }, "Confirm undo"), el("button", { type: "button", onclick: () => { state.undo = null; render(); } }, "Keep it")));
+    return p;
+  }
+
+  async function undoPreview(x, key) {
+    state.undo = { key, busy: "Checking what undo would do…" }; render();
+    try {
+      const r = await window.snapApp.run("snap_undo", { n_from_last: x.undo_position });
+      state.undo = r.ok ? { key, pos: x.undo_position, preview: r.data } : { key, error: r.text };
+    } catch (e) { state.undo = { key, error: "Could not preview the undo: " + e.message }; }
+    render();
+  }
+
+  async function undoConfirm(x, u) {
+    state.undo = Object.assign({}, u, { busy: "Undoing…" }); render();
+    try {
+      const r = await window.snapApp.run("snap_undo", { n_from_last: u.pos, confirm: true, approval_token: u.preview.approval_token });
+      if (!r.ok) { state.undo = Object.assign({}, u, { busy: null, error: r.text }); render(); return; }
+      state.undo = null;
+      await reload(); // positions shift after an undo, so the list is read again
+    } catch (e) { state.undo = Object.assign({}, u, { busy: null, error: "Could not undo: " + e.message }); render(); }
+  }
+
+  render();
+  window.snapApp.connect({
+    "ui/notifications/tool-input": (p) => { const a = (p && p.arguments) || {}; if (a.kind) state.filter = a.kind; },
+    "ui/notifications/tool-result": (r) => { if (r && r.isError) { $("sub").textContent = window.snapApp.textOf(r); return; } state.data = window.snapApp.dataOf(r); render(); },
+    error: (e) => { $("sub").textContent = "Not connected to the chat app: " + e.message; },
+  });
+})();
+
+</script>
+</body>
+</html>

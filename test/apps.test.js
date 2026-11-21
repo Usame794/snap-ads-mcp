@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { setup } from "./helpers/harness.js";
 import { APP_URIS, UI_MIME, pageFor } from "../src/apps.js";
 
-const FILES = ["dashboard.html", "board.html", "preview.html"];
+const FILES = ["dashboard.html", "board.html", "preview.html", "history.html", "setup.html", "advice.html"];
 
-test("the three cards are served as ui:// resources with the MCP Apps type", async () => {
+test("the cards are served as ui:// resources with the MCP Apps type", async () => {
   const t = await setup();
   const { resources } = await t.client.listResources();
   assert.deepEqual(resources.map((r) => r.uri).sort(), Object.values(APP_URIS).sort());

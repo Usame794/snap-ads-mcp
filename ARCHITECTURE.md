@@ -1,6 +1,6 @@
 # Architecture and design notes
 
-For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 78 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
+For contributors. Unofficial local MCP server (Node ESM, stdio) for the Snapchat Marketing API: 80 tools, all tests mocked (`npm test`). Read `README.md` first for setup and the tool table.
 
 ## Architecture (src/)
 - `portfolio.js`: several accounts side by side, from the settings files the owner lists in SNAP_PORTFOLIO_FILES (read-only).
