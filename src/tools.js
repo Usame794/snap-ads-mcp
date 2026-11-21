@@ -17,6 +17,7 @@ import { fatigueReport } from "./fatigue.js";
 import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativeProductSet, describeFilter, squadProductSet, TEMPLATE_LAYOUTS, TEMPLATE_TEXT_FIELDS } from "./catalog-ads.js";
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { assertFileAllowed } from "./media-dir.js";
+import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
 import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
@@ -78,7 +79,21 @@ export function registerTools(server, client, env = process.env) {
   const policy = loadPolicy(env);
   // SNAP_TOOLSETS hides whole groups of tools (see toolsets.js). Prompts and settings are not affected.
   const registerTool = server.registerTool.bind(server);
-  server.registerTool = (name, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, ...rest) : undefined);
+  // Every tool gets the same documentation pass: parameters without a description get one from tool-docs.js, and tools whose
+  // description has no "use this / not that" pointer get one. Nothing about what a tool does changes.
+  const documented = (name, config) => {
+    const next = { ...config };
+    const hint = TOOL_HINTS[name];
+    if (hint && next.description && !next.description.includes(hint)) next.description = `${next.description} ${hint}`;
+    const shape = next.inputSchema?.shape;
+    if (shape) {
+      const filled = {};
+      for (const [key, schema] of Object.entries(shape)) filled[key] = !schema.description && PARAM_DOCS[key] ? schema.describe(PARAM_DOCS[key]) : schema;
+      next.inputSchema = z.object(filled).strict();
+    }
+    return next;
+  };
+  server.registerTool = (name, config, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, documented(name, config), ...rest) : undefined);
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
   const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
   // One change log per settings file: with SNAP_ENV_FILE (one file per ad account) the log sits next to it, so 24-hour limits,
