@@ -1,5 +1,6 @@
 // Thin client for the Snapchat Marketing API (https://adsapi.snapchat.com/v1).
 import { brokerUrlFrom, refreshViaBroker } from "./broker.js";
+import { fixFor } from "./snap-errors.js";
 const API = "https://adsapi.snapchat.com/v1";
 const TOKEN_URL = "https://accounts.snapchat.com/login/oauth2/access_token";
 const TR = "https://tr.snapchat.com"; // Conversions API test-event tools
@@ -258,7 +259,7 @@ export class SnapClient {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.request_status === "ERROR") {
       const detail = data.debug_message || data.display_message || JSON.stringify(data).slice(0, 400);
-      throw new Error(`Snap API ${method} ${path} failed (${res.status}): ${detail}`);
+      throw new Error(`Snap API ${method} ${path} failed (${res.status}): ${detail} ${fixFor(res.status, { retryAfter: Number(res.headers?.get?.("retry-after")) })}`.trim());
     }
     return data;
   }
@@ -293,7 +294,7 @@ export class SnapClient {
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.request_status === "ERROR") {
-      throw new Error(`Snap API POST ${path} failed (${res.status}): ${data.debug_message || data.display_message || JSON.stringify(data).slice(0, 300)}`);
+      throw new Error(`Snap API POST ${path} failed (${res.status}): ${data.debug_message || data.display_message || JSON.stringify(data).slice(0, 300)} ${fixFor(res.status, { retryAfter: Number(res.headers?.get?.("retry-after")) })}`.trim());
     }
     return data;
   }
