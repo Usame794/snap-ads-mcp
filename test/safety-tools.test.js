@@ -76,10 +76,10 @@ test("cumulative increases cannot be chained past the 24h limit, through any too
   assert.equal(first.applied.data.applied, true);
   // 20 -> 40 is +100% per step, but the day started at 10
   assert.match((await t.call("snap_set_daily_budget", { entity: "adsquad", id: "s1", daily_budget: 40 })).error, /per 24h/);
-  const scaled = await t.call("snap_bulk_set_budget", { adsquad_ids: ["s1"], mode: "scale", value: 2 });
+  const scaled = await t.call("snap_set_daily_budget", { adsquad_ids: ["s1"], mode: "scale", value: 2 });
   assert.match(JSON.stringify(scaled.data.skipped), /per 24h/);
   assert.equal(scaled.data.approval_token, undefined, "nothing to approve when every item is refused");
-  const set = await t.call("snap_bulk_set_budget", { adsquad_ids: ["s1"], mode: "set", value: 40, confirm: true });
+  const set = await t.call("snap_set_daily_budget", { adsquad_ids: ["s1"], mode: "set", value: 40, confirm: true });
   assert.match(set.error, /approval_token/);
   assert.equal(t.db.adsquads.s1.daily_budget_micro, 20e6);
   assert.equal(puts(t), 1);
@@ -98,7 +98,7 @@ test("absolute limits hold on update, create, copy and bulk", async () => {
   assert.match((await t.call("snap_create_adsquad", { campaign_id: "c1", name: "New squad", daily_budget: 2, bid: 1 })).error, /at least 5/);
   assert.match((await t.call("snap_copy_adsquad", { adsquad_id: "s1", target_campaign_id: "c1", budget_scale: 2 })).error, /absolute limit of 15/);
   assert.match((await t.call("snap_copy_campaign", { campaign_id: "c1", new_name: "Copy of c1", budget_scale: 2 })).error, /absolute limit of 15/);
-  const bulk = await t.call("snap_bulk_set_budget", { adsquad_ids: ["s1", "s2"], mode: "scale", value: 1.8 });
+  const bulk = await t.call("snap_set_daily_budget", { adsquad_ids: ["s1", "s2"], mode: "scale", value: 1.8 });
   assert.equal(bulk.data.will_change.length, 0);
   assert.equal(bulk.data.approval_token, undefined);
   assert.equal(t.writes().length, 0);
@@ -114,7 +114,7 @@ test("enabling a campaign shows and limits the budgets of its ACTIVE ad squads",
   const single = (await t.call("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" })).data;
   assert.equal(single.activation.daily_budget_that_starts_delivering, 80, "30 + 50; the paused 70 squad is not counted");
   assert.deepEqual(single.activation.ad_squads_that_start_delivering.map((s) => s.adsquad_id).sort(), ["s3", "s4"]);
-  const bulk = (await t.call("snap_set_status_bulk", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).data;
+  const bulk = (await t.call("snap_set_status", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).data;
   assert.equal(bulk.preview.daily_budget_that_would_start_delivering, 80);
   // a squad under a paused campaign starts later, and says so
   const later = (await t.call("snap_set_status", { entity: "adsquad", id: "s5", status: "ACTIVE" })).data;
@@ -131,7 +131,7 @@ test("enabling a campaign shows and limits the budgets of its ACTIVE ad squads",
 
   const capped = await setup({ env: { SNAP_MAX_ACTIVATION_DAILY_BUDGET: "60" } });
   assert.match((await capped.call("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" })).error, /would start 80 of daily budget/);
-  assert.match((await capped.call("snap_set_status_bulk", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).error, /SNAP_MAX_ACTIVATION_DAILY_BUDGET/);
+  assert.match((await capped.call("snap_set_status", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).error, /SNAP_MAX_ACTIVATION_DAILY_BUDGET/);
   assert.equal(capped.writes().length, 0);
   await capped.close();
 
@@ -193,8 +193,8 @@ test("writes are refused for items of another ad account, and for ids that are n
     ["snap_set_status", { entity: "adsquad", id: "sx", status: "PAUSED" }],
     ["snap_set_status", { entity: "campaign", id: "cx", status: "PAUSED" }],
     ["snap_set_daily_budget", { entity: "adsquad", id: "sx", daily_budget: 12 }],
-    ["snap_set_status_bulk", { entity: "adsquad", ids: ["s1", "sx"], status: "PAUSED" }],
-    ["snap_bulk_set_budget", { adsquad_ids: ["sx"], mode: "set", value: 12 }],
+    ["snap_set_status", { entity: "adsquad", ids: ["s1", "sx"], status: "PAUSED" }],
+    ["snap_set_daily_budget", { adsquad_ids: ["sx"], mode: "set", value: 12 }],
     ["snap_delete", { entity: "adsquad", id: "sx" }],
     ["snap_create_adsquad", { campaign_id: "cx", name: "Intruder", daily_budget: 10, bid: 1 }],
     ["snap_copy_adsquad", { adsquad_id: "s1", target_campaign_id: "cx" }],
@@ -334,6 +334,9 @@ const WRITE_CALLS = (csv, img) => ({
   snap_undo: {},
 });
 
+// The audit log keeps the name of the tool that did the work. Its bulk variants are reached through the merged tool.
+const MERGED_TOOL = { snap_set_status_bulk: "snap_set_status", snap_bulk_exclude_segments: "snap_exclude_segments", snap_bulk_set_budget: "snap_set_daily_budget", snap_bulk_set_schedule: "snap_set_schedule", snap_bulk_rename: "snap_rename" };
+
 test("every mutating tool previews with an approval token, refuses confirm=true without it, and is audited when applied", async () => {
   const dir = mkdtempSync(join(tmpdir(), "files-"));
   const csv = join(dir, "c.csv");
@@ -345,8 +348,8 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
   const listing = await setup();
   const { tools } = await listing.client.listTools();
   const writeTools = tools.filter((x) => x.annotations?.readOnlyHint === false && x.inputSchema.properties.confirm).map((x) => x.name).sort();
-  assert.deepEqual(writeTools, Object.keys(calls).sort(), "the table above covers every mutating tool");
-  assert.equal(tools.length, 85);
+  assert.deepEqual(writeTools, [...new Set(Object.keys(calls).map((k) => MERGED_TOOL[k] ?? k))].sort(), "the table above covers every mutating tool");
+  assert.equal(tools.length, 76);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} rejects unknown arguments`);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", `${tool.name} is annotated`);
@@ -364,13 +367,14 @@ test("every mutating tool previews with an approval token, refuses confirm=true 
     if (name === "snap_set_ad_schedule") t.db.adsquads.s1 = { ...t.db.adsquads.s1, daily_budget_micro: undefined, lifetime_budget_micro: 500e6, delivery_constraint: "LIFETIME_BUDGET" };
     if (name === "snap_undo") writeFileSync(t.logFile, JSON.stringify({ at: new Date().toISOString(), entity: "adsquad", id: "s1", name: "Squad s1", change: "rename", verified: true, patch: { name: "Squad s1" }, before: { name: "Old name" }, after: { name: "Squad s1" } }) + "\n");
     const logBefore = t.log().length;
-    const denied = await t.call(name, { ...args, confirm: true });
+    const callName = MERGED_TOOL[name] ?? name;
+    const denied = await t.call(callName, { ...args, confirm: true });
     assert.match(denied.error ?? "", /approval_token/, `${name}: ${JSON.stringify(denied.data ?? denied.error).slice(0, 200)}`);
     assert.equal(t.writes().length, 0, `${name} sent a write without approval`);
     assert.equal(t.log().length, logBefore);
 
     // 2) preview -> confirm: applied, with an intent and a result record naming the tool and the account
-    const { preview, applied } = await t.twoStep(name, args);
+    const { preview, applied } = await t.twoStep(callName, args);
     assert.ok(preview.data?.approval_token, `${name} preview: ${JSON.stringify(preview).slice(0, 300)}`);
     assert.ok(applied.data, `${name} apply: ${applied.error}`);
     assert.ok(t.writes().length >= 1, `${name} wrote nothing`);

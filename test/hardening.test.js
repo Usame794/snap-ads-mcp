@@ -52,7 +52,7 @@ test("bypass closed: a schedule edit that starts delivery is checked and limited
   assert.equal((await t.call("snap_set_schedule", { entity: "adsquad", id: "p1", start_time: "2026-01-01T00:00:00+03:00" })).data.activation, undefined);
   assert.equal((await t.call("snap_set_schedule", { entity: "adsquad", id: "r1", end_time: "2099-01-01T00:00:00+03:00" })).data.activation, undefined);
   // bulk counts all of them together
-  const bulk = (await t.call("snap_bulk_set_schedule", { entity: "adsquad", ids: ["f1", "r1"], start_time: "2026-01-01T00:00:00+03:00" })).data;
+  const bulk = (await t.call("snap_set_schedule", { entity: "adsquad", ids: ["f1", "r1"], start_time: "2026-01-01T00:00:00+03:00" })).data;
   assert.equal(bulk.activation.daily_budget_that_starts_delivering, 100);
   await t.close();
 
@@ -60,7 +60,7 @@ test("bypass closed: a schedule edit that starts delivery is checked and limited
   for (const [name, args] of [
     ["snap_set_schedule", { entity: "adsquad", id: "f1", start_time: "2026-01-01T00:00:00+03:00" }],
     ["snap_set_schedule", { entity: "campaign", id: "c3", start_time: "2026-01-01T00:00:00+03:00" }],
-    ["snap_bulk_set_schedule", { entity: "adsquad", ids: ["f1"], start_time: "2026-01-01T00:00:00+03:00" }],
+    ["snap_set_schedule", { entity: "adsquad", ids: ["f1"], start_time: "2026-01-01T00:00:00+03:00" }],
   ]) assert.match((await capped.call(name, args)).error ?? "", /SNAP_MAX_ACTIVATION_DAILY_BUDGET/, name);
   // and through undo: a log entry that would put an early start back
   writeFileSync(capped.logFile, logEntry({ entity: "adsquad", id: "f1", patch: { start_time: FUTURE }, before: { start_time: PAST }, after: { start_time: FUTURE } }));
@@ -79,11 +79,11 @@ test("bypass closed: many small enables and raises cannot exceed the 24-hour acc
   assert.equal(addedDailyBudgetInWindow(t.logFile), 100);
   // enabling campaign c2 would start another 80: over the 24h limit, through every route
   assert.match((await t.call("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" })).error, /already added through this server in the last 24 hours/);
-  assert.match((await t.call("snap_set_status_bulk", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).error, /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
+  assert.match((await t.call("snap_set_status", { entity: "campaign", ids: ["c2"], status: "ACTIVE" })).error, /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
   // a raise of 10 still fits (110), the next raise does not
   assert.equal((await t.twoStep("snap_set_daily_budget", { entity: "adsquad", id: "s1", daily_budget: 20 })).applied.data.applied, true);
   assert.match((await t.call("snap_set_daily_budget", { entity: "adsquad", id: "s3", daily_budget: 45 })).error, /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
-  assert.match(JSON.stringify((await t.call("snap_bulk_set_budget", { adsquad_ids: ["s3", "s4"], mode: "scale", value: 1.5 })).error), /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
+  assert.match(JSON.stringify((await t.call("snap_set_daily_budget", { adsquad_ids: ["s3", "s4"], mode: "scale", value: 1.5 })).error), /SNAP_MAX_ADDED_DAILY_BUDGET_24H/);
   // lowering and pausing are never blocked
   assert.equal((await t.twoStep("snap_set_daily_budget", { entity: "adsquad", id: "s3", daily_budget: 20 })).applied.data.applied, true);
   assert.equal((await t.twoStep("snap_set_status", { entity: "adsquad", id: "s2", status: "PAUSED" })).applied.data.applied, true);
@@ -218,7 +218,7 @@ test("cross-account: every remaining write path refuses foreign items", async ()
     ["snap_set_schedule", { entity: "campaign", id: "cx", end_time: "2099-01-01T00:00:00+03:00" }],
     ["snap_set_bid", { adsquad_id: "sx", bid: 2.5 }],
     ["snap_exclude_segments", { adsquad_id: "sx", segment_ids: ["111"] }],
-    ["snap_bulk_rename", { entity: "campaign", ids: ["c1", "cx"], find: "Campaign", replace: "Camp" }],
+    ["snap_rename", { entity: "campaign", ids: ["c1", "cx"], find: "Campaign", replace: "Camp" }],
     ["snap_copy_campaign", { campaign_id: "cx", new_name: "Copy of foreign" }],
     ["snap_copy_campaign", { campaign_id: "c1", new_name: "Copy into foreign", resume_campaign_id: "cx" }],
   ]) {

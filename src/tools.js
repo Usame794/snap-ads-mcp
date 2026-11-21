@@ -136,11 +136,96 @@ export function registerTools(server, client, env = process.env) {
     next_offset: z.number().nullable().optional(),
     notes: z.array(z.string()).optional(),
   });
-  server.registerTool = (name, config, handler, ...rest) => {
+  const registerFinal = (name, config, handler, ...rest) => {
     if (!toolAllowed(policy.toolsets, name)) return undefined;
     const doc = documented(name, config);
     if (name.startsWith("snap_list_")) doc.outputSchema = LIST_OUTPUT;
     return registerTool(name, doc, typeof handler === "function" ? withDates(handler) : handler, ...rest);
+  };
+
+  // ---- Merged tools. Pairs and families of tools that did the same job (one item / many items; several report views) are offered
+  // as ONE tool. The original tools keep doing the work: they are captured here and called by the merged tool, so every guard,
+  // preview and approval is unchanged. The old names are hidden unless SNAP_LEGACY_TOOLS=1, and then work as deprecated aliases.
+  const byIds = (a) => (a.ids !== undefined ? "many" : "one");
+  const byAdsquadIds = (a) => (a.adsquad_ids !== undefined ? "many" : "one");
+  const MERGES = [
+    { name: "snap_set_status", variants: { one: "snap_set_status", many: "snap_set_status_bulk" }, pick: byIds, many: "ids" },
+    { name: "snap_rename", variants: { one: "snap_rename", many: "snap_bulk_rename" }, pick: byIds, many: "ids" },
+    { name: "snap_set_schedule", variants: { one: "snap_set_schedule", many: "snap_bulk_set_schedule" }, pick: byIds, many: "ids" },
+    { name: "snap_exclude_segments", variants: { one: "snap_exclude_segments", many: "snap_bulk_exclude_segments" }, pick: byAdsquadIds, many: "adsquad_ids" },
+    { name: "snap_set_daily_budget", variants: { one: "snap_set_daily_budget", many: "snap_bulk_set_budget" }, pick: byAdsquadIds, many: "adsquad_ids" },
+    { name: "snap_report", selector: "view", variants: { table: "snap_report", daily: "snap_report_daily", hourly: "snap_report_hourly", compare: "snap_report_compare", audience: "snap_report_audience" } },
+  ];
+  const captured = new Map();
+  const MERGED_NAMES = new Set(MERGES.flatMap((m) => Object.values(m.variants)));
+  server.registerTool = (name, config, handler, ...rest) => (MERGED_NAMES.has(name) ? void captured.set(name, { config, handler }) : registerFinal(name, config, handler, ...rest));
+
+  const unwrap = (s) => {
+    while (s?.def?.innerType) s = s.def.innerType;
+    return s;
+  };
+  const enumOptions = (s) => {
+    const base = unwrap(s);
+    return Array.isArray(base?.options) ? base.options : null;
+  };
+  // One input shape that accepts everything any variant accepts. The chosen variant then checks the arguments with its own
+  // schema, so its required fields, limits and defaults are enforced exactly as before.
+  const unionShape = (merge, parts) => {
+    const shapes = parts.map((p) => p.config.inputSchema.shape);
+    const keys = [...new Set(shapes.flatMap((s) => Object.keys(s)))];
+    const out = {};
+    for (const k of keys) {
+      const present = shapes.filter((s) => k in s);
+      if (k === "confirm" || k === "approval_token") {
+        out[k] = present[0][k];
+        continue;
+      }
+      const options = present.map((s) => enumOptions(s[k]));
+      out[k] = (options.every(Boolean) ? z.enum([...new Set(options.flat())]) : unwrap(present[0][k])).optional();
+      const described = present.map((s) => s[k].description).find(Boolean);
+      if (described) out[k] = out[k].describe(described);
+    }
+    if (merge.selector) out[merge.selector] = z.enum(Object.keys(merge.variants)).default(Object.keys(merge.variants)[0]).describe(`Which report: ${Object.keys(merge.variants).join(", ")}.`);
+    return out;
+  };
+  const strip = (s) => String(s ?? "").replace(TWO_STEP, "").trim();
+  const mergedDescription = (merge, parts) => {
+    if (merge.selector) return `${merge.selector === "view" ? "Performance reports (read-only). Choose a view:" : ""} ${parts.map(([key, p]) => `view=${key}: ${strip(p.config.description)}`).join(" ")}`.trim();
+    const [one, many] = parts.map(([, p]) => p);
+    return `${strip(one.config.description)} For several items at once pass ${merge.many} instead of the single id: ${strip(many.config.description)}`;
+  };
+  const finalizeMerges = () => {
+    for (const merge of MERGES) {
+      const keys = Object.keys(merge.variants);
+      const parts = keys.map((k) => [k, captured.get(merge.variants[k])]);
+      if (parts.some(([, p]) => !p)) continue;
+      const only = parts.map(([, p]) => p);
+      const annotations = { ...only[0].config.annotations };
+      if (only.some((p) => p.config.annotations?.destructiveHint)) annotations.destructiveHint = true;
+      const config = { description: mergedDescription(merge, parts), inputSchema: z.object(unionShape(merge, only)).strict(), annotations };
+      const handler = async (args, ...more) => {
+        const which = merge.selector ? args[merge.selector] : merge.pick(args);
+        const target = captured.get(merge.variants[which]);
+        const schema = target.config.inputSchema;
+        const given = Object.fromEntries(Object.entries(args).filter(([k, v]) => v !== undefined && k !== merge.selector));
+        const wrong = Object.keys(given).filter((k) => !(k in schema.shape));
+        if (wrong.length) {
+          const using = merge.selector ? `${merge.selector}=${which}` : which === "many" ? merge.many : "a single item";
+          return fail(new Error(`${wrong.join(", ")} ${wrong.length > 1 ? "do" : "does"} not apply when using ${using}. Use ${Object.keys(schema.shape).filter((k) => k !== "confirm" && k !== "approval_token").join(", ")}.`));
+        }
+        const checked = schema.safeParse(given);
+        if (!checked.success) return fail(new Error(checked.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")));
+        return target.handler(checked.data, ...more);
+      };
+      registerFinal(merge.name, config, handler);
+      if (policy.legacyTools) {
+        for (const [key, p] of parts) {
+          const alias = merge.variants[key];
+          if (alias === merge.name) continue;
+          registerFinal(alias, { ...p.config, description: `DEPRECATED, use ${merge.name}${merge.selector ? ` with ${merge.selector}=${key}` : ` with ${merge.many}`}. ${p.config.description}` }, p.handler);
+        }
+      }
+    }
   };
   maxResponseChars = policy.maxResponseChars;
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
@@ -1772,4 +1857,5 @@ export function registerTools(server, client, env = process.env) {
       };
     },
   );
+  finalizeMerges();
 }
