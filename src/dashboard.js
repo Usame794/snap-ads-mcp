@@ -3,6 +3,7 @@
 import { collectBreakdown, dailyReport } from "./report.js";
 import { localClock, pacingReport } from "./insights.js";
 import { shiftIso } from "./fatigue.js";
+import { judgeDays } from "./checks.js";
 
 const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -30,6 +31,12 @@ export async function dashboardData(client, { adAccountId, offset = "+00:00", da
   } catch (e) {
     warnings.push(`Pacing could not be read (${String(e.message).slice(0, 120)}).`);
   }
+  // Alerts from the same daily rows (no extra calls): a spike, a drop, missing purchases. Judged only with 5+ full days.
+  let alerts = [];
+  if (daily.rows.length >= 5) {
+    const j = judgeDays(daily.rows);
+    alerts = (j.findings ?? []).map((f) => ({ severity: f.severity, code: f.code, detail: f.detail, day: daily.rows.at(-1)?.date ?? null }));
+  }
   const totals = { spend: daily.total_spend, purchases: daily.total_purchases, purchase_value: daily.total_purchase_value, roas: daily.total_roas, cpa: daily.total_cpa, impressions: daily.total_impressions, swipe_rate_pct: daily.total_swipe_rate_pct };
   const cur = currency ? ` ${currency}` : "";
   const summary = `Last ${days} days: spend ${totals.spend}${cur}, ${totals.purchases} purchases, ROAS ${totals.roas ?? "n/a"}, CPA ${totals.cpa ?? "n/a"}${pacing ? `. This month so far ${pacing.month_to_date_spend}${cur}, projected ${pacing.projected_month_spend}${cur}` : ""}.`;
@@ -40,47 +47,73 @@ export async function dashboardData(client, { adAccountId, offset = "+00:00", da
     totals,
     daily: daily.rows.map((x) => ({ date: x.date, spend: x.spend, purchases: x.purchases, roas: x.roas })),
     pacing,
+    alerts,
     ...(warnings.length ? { warnings } : {}),
   };
 }
 
-export async function boardData(client, { adAccountId, offset = "+00:00", status = null, limit = 30, currency = null, now = new Date() }) {
+// One row per campaign (level "campaigns") or per ad squad (level "adsquads"), with spend, ROAS and purchases over the last
+// `days` full days and a flag when something needs a look. Read-only: the card's buttons go through the normal tools.
+const flagOf = (spend, purchases, roas) => (spend > 0 && !purchases ? "No purchases" : roas != null && roas < 1 && spend > 0 ? "ROAS under 1" : null);
+
+export async function boardData(client, { adAccountId, offset = "+00:00", status = null, limit = 30, currency = null, level = "campaigns", days = 7, now = new Date() }) {
+  if (!["campaigns", "adsquads"].includes(level)) throw new Error("level must be campaigns or adsquads");
+  if (!Number.isInteger(days) || days < 1 || days > 30) throw new Error("days must be a whole number from 1 to 30");
   const end = localClock(now, offset).todayStart;
-  const start = shiftIso(end, -7 * 86_400_000);
+  const start = shiftIso(end, -days * 86_400_000);
   const warnings = [];
   const campaigns = (await client.listPaged(`/adaccounts/${adAccountId}/campaigns`, "campaign")).items;
-  let spend = {};
+  const byCampaign = new Map(campaigns.map((c) => [c.id, c]));
+  const key = level === "adsquads" ? "adsquad" : "campaign";
+  let stats = {};
   try {
-    const rows = await collectBreakdown(client, `/adaccounts/${adAccountId}/stats`, { granularity: "TOTAL", breakdown: "campaign", start_time: start, end_time: end, fields: "spend,conversion_purchases_value" }, "campaign");
-    spend = Object.fromEntries(rows.map((x) => [x.id, x.stats ?? {}]));
+    const rows = await collectBreakdown(client, `/adaccounts/${adAccountId}/stats`, { granularity: "TOTAL", breakdown: key, start_time: start, end_time: end, fields: "spend,conversion_purchases,conversion_purchases_value" }, key);
+    stats = Object.fromEntries(rows.map((x) => [x.id, x.stats ?? {}]));
     if (rows.incomplete) warnings.push("Spend figures are a lower bound (Snap returned more pages than were read).");
   } catch (e) {
     warnings.push(`Spend could not be read (${String(e.message).slice(0, 120)}).`);
   }
-  const budgets = {};
+  let squads = [];
   try {
-    for (const s of (await client.listPaged(`/adaccounts/${adAccountId}/adsquads`, "adsquad", { maxPages: 4 })).items) {
-      if (s.status === "ACTIVE" && s.daily_budget_micro > 0) budgets[s.campaign_id] = (budgets[s.campaign_id] ?? 0) + s.daily_budget_micro / 1e6;
-    }
+    const listed = await client.listPaged(`/adaccounts/${adAccountId}/adsquads`, "adsquad", { maxPages: 4 });
+    squads = listed.items;
+    if (!listed.complete) warnings.push("Not every ad squad was read; budgets are a lower bound.");
   } catch {
-    // The budget column is optional.
+    // The budget column is optional on the campaign level.
+    if (level === "adsquads") throw new Error("The ad squads of this account could not be read.");
   }
-  const rows = campaigns
-    .filter((c) => !status || c.status === status)
-    .map((c) => {
-      const s = spend[c.id] ?? {};
-      const sp = (s.spend ?? 0) / 1e6;
-      return { id: c.id, name: c.name, status: c.status, spend_7d: r2(sp), roas_7d: sp ? r2((s.conversion_purchases_value ?? 0) / 1e6 / sp) : null, active_daily_budget: budgets[c.id] != null ? r2(budgets[c.id]) : null };
-    })
-    .sort((a, b) => (a.status === b.status ? b.spend_7d - a.spend_7d : a.status === "ACTIVE" ? -1 : 1));
+  const budgets = {};
+  for (const s of squads) if (s.status === "ACTIVE" && s.daily_budget_micro > 0) budgets[s.campaign_id] = (budgets[s.campaign_id] ?? 0) + s.daily_budget_micro / 1e6;
+  const measure = (id) => {
+    const s = stats[id] ?? {};
+    const sp = r2((s.spend ?? 0) / 1e6);
+    const purchases = s.conversion_purchases ?? 0;
+    const roas = sp ? r2((s.conversion_purchases_value ?? 0) / 1e6 / sp) : null;
+    return { spend: sp, purchases, roas, flag: flagOf(sp, purchases, roas) };
+  };
+  const source = level === "adsquads"
+    ? squads.map((s) => {
+        const c = byCampaign.get(s.campaign_id);
+        const m = measure(s.id);
+        return { id: s.id, entity: "adsquad", name: s.name, status: s.status, campaign_id: s.campaign_id, campaign_name: c?.name ?? null, campaign_status: c?.status ?? null, daily_budget: s.daily_budget_micro > 0 ? r2(s.daily_budget_micro / 1e6) : null, lifetime_budget: s.lifetime_budget_micro > 0 ? r2(s.lifetime_budget_micro / 1e6) : null, spend: m.spend, purchases: m.purchases, roas: m.roas, flag: m.flag, spend_7d: m.spend, roas_7d: m.roas };
+      })
+    : campaigns.map((c) => {
+        const m = measure(c.id);
+        return { id: c.id, entity: "campaign", name: c.name, status: c.status, active_daily_budget: budgets[c.id] != null ? r2(budgets[c.id]) : null, campaign_daily_budget: c.daily_budget_micro > 0 ? r2(c.daily_budget_micro / 1e6) : null, spend: m.spend, purchases: m.purchases, roas: m.roas, flag: m.flag, spend_7d: m.spend, roas_7d: m.roas };
+      });
+  const rows = source.filter((x) => !status || x.status === status).sort((a, b) => (a.status === b.status ? b.spend - a.spend : a.status === "ACTIVE" ? -1 : 1));
   const shown = rows.slice(0, limit);
   const cur = currency ? ` ${currency}` : "";
+  const noun = level === "adsquads" ? "ad squads" : "campaigns";
   return {
-    summary: `${rows.length} campaigns (${rows.filter((x) => x.status === "ACTIVE").length} active). Spend is for the last 7 days${cur}.`,
+    summary: `${rows.length} ${noun} (${rows.filter((x) => x.status === "ACTIVE").length} active). Spend is for the last ${days} days${cur}.${rows.some((x) => x.flag) ? ` ${rows.filter((x) => x.flag).length} need a look.` : ""}`,
     account: { id: adAccountId, currency },
-    range: { start_time: start, end_time: end, days: 7 },
-    campaigns: shown,
-    total_campaigns: rows.length,
+    level,
+    range: { start_time: start, end_time: end, days },
+    items: shown,
+    campaigns: level === "campaigns" ? shown : undefined,
+    total: rows.length,
+    total_campaigns: level === "campaigns" ? rows.length : undefined,
     has_more: rows.length > limit,
     ...(warnings.length ? { warnings } : {}),
   };

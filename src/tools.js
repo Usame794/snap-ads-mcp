@@ -20,6 +20,7 @@ import { assertFileAllowed } from "./media-dir.js";
 import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
 import { APP_TOOLS, APP_URIS, registerApps, uiMeta } from "./apps.js";
 import { boardData, dashboardData } from "./dashboard.js";
+import { changeHistory, setupCheck } from "./interactive.js";
 import { budgetWarning } from "./budget-warning.js";
 import { audienceInsights, buildTestEvent, capiStatus, capiTest, CAPI_TEST_EVENTS, competitorAds, GALLERY_COUNTRIES, INSIGHT_CATEGORIES } from "./intel.js";
 import { anomalyCheck, blendedRoas, landingPageReport } from "./checks.js";
@@ -363,7 +364,11 @@ export function registerTools(server, client, env = process.env) {
             const repeat = repeatGuard ? approvals.recentRepeat(requestDigest) : null;
             const issued = approvals.issue(name, binding, detail);
             const budgetWarn = added > 0 ? await budgetWarning(client, account(), { added, policy }) : null;
+            // One plain sentence about money first, so a person (and a card) sees the spending effect before anything else.
+            const cur = policy.currency ? ` ${policy.currency}` : "";
+            const impact_line = added > 0 ? `Adds ${added}${cur} per day of spending (${round2((ledger?.already_added_last_24h ?? 0) + added)} of ${policy.maxAddedDailyBudget24h}${cur} allowed in 24 hours).` : "Does not add daily spending.";
             return text({
+              impact_line,
               ...p.preview,
               ...(budgetWarn ? { budget_warning: budgetWarn } : {}),
               ...(repeat ? { duplicate_warning: `An identical request was executed ${repeat.seconds_ago}s ago and will be refused if confirmed: ${JSON.stringify(repeat.summary)}` } : {}),
@@ -1877,9 +1882,36 @@ export function registerTools(server, client, env = process.env) {
     "snap_campaign_board",
     {
       description: "Campaign board (read-only): every campaign with its status, last 7 days of spend and ROAS, and the daily budgets of its active ad squads. Shows an interactive card with Pause and Resume buttons in apps that support cards (each button still previews and asks you to confirm); the same list comes back as data otherwise. Not for ad squads or ads: use snap_list_adsquads or snap_list_ads.",
-      shape: { status: z.enum(["ACTIVE", "PAUSED"]).optional(), limit: z.number().int().min(1).max(100).default(30) },
+      shape: {
+        level: z.enum(["campaigns", "adsquads"]).default("campaigns").describe("campaigns, or adsquads (with daily budgets and -20%/+20% buttons in the card)"),
+        days: z.number().int().min(1).max(30).default(7).describe("Spend and ROAS over the last N full days"),
+        status: z.enum(["ACTIVE", "PAUSED"]).optional(),
+        limit: z.number().int().min(1).max(100).default(30),
+      },
     },
-    ({ status, limit }) => boardData(client, { adAccountId: account(), offset: policy.reportUtcOffset, status, limit, currency: policy.currency }),
+    ({ level, days, status, limit }) => boardData(client, { adAccountId: account(), offset: policy.reportUtcOffset, level, days, status, limit, currency: policy.currency }),
+  );
+
+  read(
+    "snap_change_history",
+    {
+      description: "What changed (read-only): the changes made through this server, newest first, with before and after values and, for each one that can be reverted, its undo_position for snap_undo. Shows an interactive card with filters and Undo buttons (each Undo previews and asks you to confirm) in apps that support cards. For raw audit records use snap_change_log.",
+      shape: {
+        kind: z.enum(["budget", "bid", "status", "targeting", "schedule", "rename", "create", "delete", "undo", "other"]).optional().describe("Only this kind of change"),
+        limit: z.number().int().min(1).max(100).default(30),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    ({ kind, limit }) => changeHistory(logFile, { kind, limit }),
+  );
+
+  read(
+    "snap_setup_check",
+    {
+      description: "Is everything set up? (read-only) A checklist: Snapchat login, the ad account (name, status, currency), pixel, brand profile, main country, change log, and whether you are asked before every change, plus the money limits in use and how to fix anything missing. Shows an interactive card in apps that support cards. Returns no secrets.",
+      shape: {},
+    },
+    () => setupCheck(client, { cfg, policy, logFile }),
   );
 
   registerApps(server);

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget suggestions</title>
+<style>
+:root{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb;--fb-warnbg:#fff7e8;--fb-warnline:#f0d9ad}
+@media (prefers-color-scheme:dark){:root{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff;--fb-warnbg:#3a2f1c;--fb-warnline:#6b5527}}
+:root[data-theme=light]{--fb-bg:#fff;--fb-bg2:#f4f5f7;--fb-text:#14171c;--fb-muted:#5b6270;--fb-border:#d9dce2;--fb-good:#1a8a5a;--fb-bad:#c92a2a;--fb-warn:#9a5b00;--accent:#3b5bdb;--fb-warnbg:#fff7e8;--fb-warnline:#f0d9ad}
+:root[data-theme=dark]{--fb-bg:#1b1d22;--fb-bg2:#252830;--fb-text:#eceef2;--fb-muted:#9aa1ad;--fb-border:#3a3e48;--fb-good:#4cd38e;--fb-bad:#ff7b7b;--fb-warn:#ffc15a;--accent:#8aa0ff;--fb-warnbg:#3a2f1c;--fb-warnline:#6b5527}
+:root{--bg:var(--color-background-primary,var(--fb-bg));--bg2:var(--color-background-secondary,var(--fb-bg2));--text:var(--color-text-primary,var(--fb-text));--muted:var(--color-text-secondary,var(--fb-muted));--border:var(--color-border-primary,var(--fb-border));--good:var(--color-text-success,var(--fb-good));--bad:var(--color-text-danger,var(--fb-bad));--warn:var(--color-text-warning,var(--fb-warn));--warnbg:var(--fb-warnbg);--warnline:var(--fb-warnline)}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+h1{font-size:17px;margin:0}.sub{color:var(--muted);font-size:12px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px}
+.badge{display:inline-block;padding:1px 10px;border-radius:999px;font-size:11px;border:1px solid var(--warn);color:var(--warn)}
+.badge.done{border-color:var(--good);color:var(--good)}.badge.off{border-color:var(--border);color:var(--muted)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border);margin-right:6px}
+.pill.on{color:var(--good);border-color:var(--good)}.pill.flag{border-color:var(--warn);color:var(--warn)}
+.impact{background:var(--warnbg);border:1px solid var(--warnline);border-radius:10px;padding:10px 12px;font-weight:600;margin:10px 0}
+.impact.calm{background:var(--bg);border-color:var(--border);font-weight:500}
+dl{margin:10px 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}
+dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+pre{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px}
+.track{height:10px;background:var(--border);border-radius:999px;overflow:hidden;display:flex}
+.track span{display:block;height:100%}
+.warn{color:var(--warn);margin:6px 0}.err{color:var(--bad);margin:6px 0}.ok{color:var(--good);margin:6px 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+button{min-height:44px;min-width:44px;padding:0 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.link{border:0;background:none;color:var(--accent);padding:0;min-height:32px}
+button.chip{min-height:36px;border-radius:999px;padding:0 12px}
+button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.row.open{border-color:var(--accent)}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.name{font-weight:650;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:12px;margin-top:2px}
+.panel{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.stepper{display:flex;align-items:center;border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+.stepper button{border:0;background:none;font-size:18px}
+.skeleton{background:linear-gradient(90deg,var(--bg2),var(--border),var(--bg2));background-size:200% 100%;animation:sk 1.2s linear infinite;border-radius:12px;min-height:72px;margin-bottom:10px}
+@keyframes sk{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+
+</style>
+</head>
+<body>
+<main id="app"><div class="skeleton"></div><div class="skeleton"></div></main>
+<!--BRIDGE-->
+<script>
+(function () {
+  const { el, num } = window.snapApp;
+  const $ = (id) => document.getElementById(id);
+  const state = { items: [], on: {}, status: {}, running: false, note: null, base: null };
+
+  function load(d) {
+    state.base = d;
+    state.items = [...(d.decreases || []), ...(d.increases || [])].map((x) => Object.assign({}, x, { diff: Math.round((x.to - x.from) * 100) / 100 }));
+    state.on = Object.fromEntries(state.items.map((x) => [x.adsquad_id, true]));
+    state.status = {};
+    render();
+  }
+
+  function render() {
+    const root = $("app"); root.textContent = "";
+    const d = state.base;
+    if (!d) return;
+    if (!state.items.length) { root.append(el("div", { class: "card" }, el("h1", null, "Budget suggestions"), el("div", { class: "sub" }, d.note || "Nothing to move right now."))); window.snapApp.resize(); return; }
+    const sel = state.items.filter((x) => state.on[x.adsquad_id]);
+    const net = sel.reduce((n, x) => n + x.diff, 0);
+    const adds = sel.reduce((n, x) => n + Math.max(0, x.diff), 0);
+    const card = el("div", { class: "card" });
+    card.append(el("h1", null, "Budget suggestions"), el("div", { class: "sub" }, "Median ROAS " + num(d.median_roas) + " over " + (d.window ? d.window.days : "?") + " days · " + d.squads_compared + " ad squads compared"));
+    card.append(el("div", { class: "impact" + (adds > 0 ? "" : " calm") }, sel.length + " of " + state.items.length + " selected · net " + (net > 0 ? "+" : "") + num(net) + " per day" + (adds > 0 ? " · adds " + num(adds) + " per day before cuts" : "")));
+    const quick = el("div", { class: "seg", style: "margin-bottom:8px" },
+      el("button", { type: "button", class: "chip", disabled: state.running, onclick: () => setAll(() => true) }, "Select all"),
+      el("button", { type: "button", class: "chip", disabled: state.running, onclick: () => setAll((x) => x.diff < 0) }, "Only cuts"),
+      el("button", { type: "button", class: "chip", disabled: state.running, onclick: () => setAll(() => false) }, "None"));
+    card.append(quick);
+    for (const x of state.items) {
+      const id = "s-" + x.adsquad_id;
+      const st = state.status[x.adsquad_id];
+      const box = el("input", { type: "checkbox", id, disabled: state.running || !!(st && st.ok) , onchange: () => { state.on[x.adsquad_id] = !state.on[x.adsquad_id]; render(); } });
+      box.checked = !!state.on[x.adsquad_id];
+      box.style.cssText = "width:20px;height:20px;accent-color:var(--accent)";
+      const diff = el("div", { style: "font-weight:650" }, (x.diff > 0 ? "+" : "") + num(x.diff) + "/day");
+      diff.style.color = x.diff > 0 ? "var(--warn)" : "var(--good)";
+      card.append(el("label", { for: id, style: "display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--border);cursor:pointer" }, box,
+        el("div", { style: "min-width:0" }, el("div", { class: "name", dir: "auto" }, x.adsquad), el("div", { class: "sub" }, x.why), st ? el("div", { class: st.ok ? "ok" : st.err ? "err" : "sub" }, st.text) : null),
+        el("div", { style: "text-align:right;white-space:nowrap" }, el("div", { style: "font-size:13px" }, num(x.from) + " → " + num(x.to)), diff)));
+    }
+    if (state.note) card.append(el("div", { class: state.note.err ? "err" : "ok" }, state.note.text));
+    card.append(el("div", { class: "btns" }, el("button", { type: "button", class: "primary", disabled: state.running || !sel.some((x) => !(state.status[x.adsquad_id] || {}).ok), onclick: () => applyAll() }, state.running ? "Applying…" : "Apply " + sel.length + " change" + (sel.length === 1 ? "" : "s"))));
+    card.append(el("div", { class: "sub" }, "Each one is previewed and applied with its own approval token, one after another, stopping at the first refusal. Changing a budget can restart Snap's learning."));
+    root.append(card);
+    window.snapApp.resize();
+  }
+
+  function setAll(fn) { if (state.running) return; state.on = Object.fromEntries(state.items.map((x) => [x.adsquad_id, fn(x)])); render(); }
+
+  async function applyAll() {
+    const todo = state.items.filter((x) => state.on[x.adsquad_id] && !(state.status[x.adsquad_id] || {}).ok);
+    state.running = true; state.note = null; render();
+    let done = 0;
+    for (const x of todo) {
+      const args = { entity: "adsquad", id: x.adsquad_id, daily_budget: x.to };
+      state.status[x.adsquad_id] = { text: "Previewing…" }; render();
+      try {
+        const p = await window.snapApp.run("snap_set_daily_budget", args);
+        if (!p.ok || !p.data || !p.data.approval_token) { state.status[x.adsquad_id] = { err: true, text: p.text || "No approval token in the preview." }; break; }
+        // A warning in the preview (an unusual amount, a repeat of a recent change, read-only) is never applied unseen: stop and say so.
+        const warning = (p.data.budget_warning && p.data.budget_warning.message) || p.data.duplicate_warning || p.data.read_only;
+        if (warning) { state.status[x.adsquad_id] = { err: true, text: "Not applied: " + warning + " Change this one from its own preview in the chat." }; break; }
+        state.status[x.adsquad_id] = { text: "Applying…" }; render();
+        const r = await window.snapApp.run("snap_set_daily_budget", Object.assign({}, args, { confirm: true, approval_token: p.data.approval_token }));
+        if (!r.ok) { state.status[x.adsquad_id] = { err: true, text: r.text }; break; }
+        state.status[x.adsquad_id] = { ok: true, text: "Applied." };
+        done++;
+      } catch (e) { state.status[x.adsquad_id] = { err: true, text: e.message }; break; }
+      render();
+    }
+    state.running = false;
+    state.note = done === todo.length ? { text: done + " budget" + (done === 1 ? "" : "s") + " changed. Undo any of them from the change history." } : { err: true, text: "Stopped after " + done + " of " + todo.length + ". The rest were not sent." };
+    render();
+  }
+
+  window.snapApp.connect({
+    "ui/notifications/tool-result": (r) => { if (r && r.isError) { $("app").textContent = window.snapApp.textOf(r); return; } load(window.snapApp.dataOf(r) || {}); },
+    error: (e) => { $("app").textContent = "Not connected to the chat app: " + e.message; },
+  });
+})();
+
+</script>
+</body>
+</html>

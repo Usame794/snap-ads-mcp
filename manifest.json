@@ -83,7 +83,7 @@
     "toolsets": {
       "type": "string",
       "title": "Tool set",
-      "description": "Optional. core (the default) = 46 everyday tools: read, check, launch campaigns. Type all to show every tool, or a list such as core,reports.",
+      "description": "Optional. core (the default) = 48 everyday tools: read, check, launch campaigns. Type all to show every tool, or a list such as core,reports.",
       "default": "core",
       "required": false
     }

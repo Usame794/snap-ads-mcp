@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **More interactive tools** (from an independent patch, reviewed and tested here). New read-only tools `snap_change_history` (a filterable timeline of changes with before and after values and Undo buttons) and `snap_setup_check` (a checklist of the login, account, pixel, profile, country, change log and safety settings, with how to fix each). `snap_campaign_board` takes `level` (campaigns or ad squads, with -20% and +20% budget buttons) and `days` (1-30). The budget advice shows as a card where you tick suggestions and apply them together; each one is previewed and uses its own approval token, and a warning in any preview stops the batch instead of applying it. Every preview now starts with `impact_line`, one sentence about the spending effect. Names are shown with `dir="auto"` so Arabic names read correctly; amounts use the account currency (three decimals for KWD, BHD, OMR, JOD). 78 tools became 80; the core set is 48.
+
 ## 0.9.8 (2026-11-21)
 
 - **Fix: the Claude Desktop extension did not start after upgrading to 0.9.7.** 0.9.7 added a required setting (Tool set); an upgraded install has no saved value for it, and Desktop then reports "No MCP config found" and never starts the server. The setting is now optional, the extension passes `SNAP_TOOLSETS_DEFAULT=core`, and the server uses it when the Tool set is empty or was never saved. Tests start the server in every state of the setting and keep new extension settings optional.
