@@ -178,3 +178,11 @@ Done, each in its own commit, with tests (370 passing):
 | H3 | PASS | README: examples, permissions, rate limits, paging. |
 
 Not done yet (waiting for your decision, or optional): A2/A3/A4 consolidation (a plan comes first, because it renames and merges tools), A6 renames, B5 YYYY-MM-DD date input, C3 units sweep, C6 shared truncation helper, `outputSchema`, and MCP Apps (G). Still not run: MCP Inspector.
+
+### Round two
+| ID | New status | What changed |
+|---|---|---|
+| B5 | PASS | A plain `YYYY-MM-DD` is accepted for every start and end time (00:00 that day in `SNAP_REPORT_UTC_OFFSET`); ISO date-times still work. |
+| C3 | PASS | Rates already carry their unit in the name (`*_pct` for percent, `roas` as a ratio, money in account currency); noted, no change needed. |
+| C6 | PASS | One shared cut-off (`SNAP_MAX_RESPONSE_CHARS`, default 100000) with a note on how to ask for less. |
+| C7 | PARTIAL | `outputSchema` on all `snap_list_*` tools; other tools return `structuredContent` without a declared schema. |

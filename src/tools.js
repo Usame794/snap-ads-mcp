@@ -41,12 +41,18 @@ import { Ownership } from "./ownership.js";
 import { activationImpact, scheduleOpensDelivery } from "./activation.js";
 import { adTypeFor, checkProductImage, mediaSize, buildCollectionCreative, buildCompositeCreative, buildCreativeElement, buildInteractionZone, buildPreviewCreative, buildSnapAdCreative, STORY_PART_TYPES, WEB_VIEW_CTAS } from "./formats.js";
 
-const text = (obj) => ({
-  content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }],
-  // The same answer as data, for clients that can use it. Arrays and plain text stay text only (structured content must be an object).
-  ...(obj && typeof obj === "object" && !Array.isArray(obj) ? { structuredContent: JSON.parse(JSON.stringify(obj)) } : {}),
-});
-// A list result keeps its plain array shape; anything the reader must know (cut off, more than shown) goes in a second block.
+// Answers longer than this are cut with a note saying how to ask for less (set by SNAP_MAX_RESPONSE_CHARS in registerTools).
+let maxResponseChars = 100_000;
+const text = (obj) => {
+  let body = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+  const cut = body.length > maxResponseChars;
+  if (cut) body = `${body.slice(0, maxResponseChars)}\n...[the answer was cut at ${maxResponseChars} characters (it had ${body.length}). Ask for fewer rows (a smaller limit or an offset), a shorter date range, or response_format=concise.]`;
+  return {
+    content: [{ type: "text", text: body }],
+    // The same answer as data, for clients that can use it. Arrays and plain text stay text only (structured content must be an object).
+    ...(!cut && obj && typeof obj === "object" && !Array.isArray(obj) ? { structuredContent: JSON.parse(JSON.stringify(obj)) } : {}),
+  };
+};
 const conciseRow = (r) => ({ id: r.id, name: r.name, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.media_status !== undefined ? { media_status: r.media_status } : {}), ...(r.type !== undefined ? { type: r.type } : {}) });
 class ListResult {
   // Without `page` the rows are returned as they are. With it, the rows are cut to limit/offset and the answer says if more exist.
@@ -68,7 +74,11 @@ const asResult = (out) => {
   const r = text(out.items);
   const notes = [...out.notes];
   if (out.paged?.next_offset != null && !notes.some((n) => /offset=/.test(n))) notes.push(`More rows exist: repeat the call with offset=${out.paged.next_offset}.`);
-  r.structuredContent = { items: out.items, ...(out.paged ?? {}), ...(notes.length ? { notes } : {}) };
+  const wasCut = /\.\.\.\[the answer was cut at/.test(r.content[0].text);
+  // A cut answer carries no rows as data (the text above is only part of them); it still satisfies the declared output schema.
+  r.structuredContent = wasCut
+    ? { items: [], returned: 0, has_more: true, notes: ["The answer was too long and was cut. Ask for fewer rows (a smaller limit or an offset), a shorter date range, or response_format=concise."] }
+    : { items: out.items, ...(out.paged ?? {}), ...(notes.length ? { notes } : {}) };
   if (notes.length) r.content.push({ type: "text", text: `NOTE: ${notes.join(" ")}` });
   return r;
 };
@@ -110,7 +120,29 @@ export function registerTools(server, client, env = process.env) {
     }
     return next;
   };
-  server.registerTool = (name, config, ...rest) => (toolAllowed(policy.toolsets, name) ? registerTool(name, documented(name, config), ...rest) : undefined);
+  // A plain date (YYYY-MM-DD) is accepted wherever Snap needs a time on the hour: it means 00:00 that day in SNAP_REPORT_UTC_OFFSET.
+  const DATE_KEYS = ["start_time", "end_time", "current_start", "current_end", "previous_start", "previous_end"];
+  const withDates = (handler) => (args, ...more) => {
+    let next = args;
+    for (const k of DATE_KEYS) if (typeof next?.[k] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(next[k])) next = { ...next, [k]: `${next[k]}T00:00:00${policy.reportUtcOffset}` };
+    return handler(next, ...more);
+  };
+  const LIST_OUTPUT = z.object({
+    items: z.array(z.record(z.string(), z.unknown())),
+    returned: z.number().optional(),
+    total_matching: z.number().optional(),
+    offset: z.number().optional(),
+    has_more: z.boolean().optional(),
+    next_offset: z.number().nullable().optional(),
+    notes: z.array(z.string()).optional(),
+  });
+  server.registerTool = (name, config, handler, ...rest) => {
+    if (!toolAllowed(policy.toolsets, name)) return undefined;
+    const doc = documented(name, config);
+    if (name.startsWith("snap_list_")) doc.outputSchema = LIST_OUTPUT;
+    return registerTool(name, doc, typeof handler === "function" ? withDates(handler) : handler, ...rest);
+  };
+  maxResponseChars = policy.maxResponseChars;
   // The account, profile and pixel are fixed for the life of the process: editing .env cannot retarget a running server.
   const cfg = Object.freeze({ account: env.SNAP_AD_ACCOUNT_ID || undefined, profile: env.SNAP_BRAND_PROFILE_ID || undefined, pixel: env.SNAP_PIXEL_ID || undefined });
   // One change log per settings file: with SNAP_ENV_FILE (one file per ad account) the log sits next to it, so 24-hour limits,
