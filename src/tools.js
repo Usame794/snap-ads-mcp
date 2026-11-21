@@ -466,12 +466,20 @@ export function registerTools(server, client, env = process.env) {
       description:
         "Connect this server to a Snapchat ad account, from inside the chat. Step 1: call with no arguments; it returns a link for the person to open and approve. Step 2: the person pastes the address the browser landed on; call with redirected_url, and it saves access on this computer and lists the ad accounts. Step 3: call with ad_account_id to choose one, then the app must be restarted. Changes no ads.",
       inputSchema: z.object({ redirected_url: z.string().max(4000).optional(), ad_account_id: id().optional() }).strict(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async ({ redirected_url, ad_account_id }) => {
       try {
         const e = client.env;
         const file = envFile();
+        // Changing which login or ad account this server acts on is a change like any other: once an ad account is set, read-only mode
+        // refuses it, and with SNAP_HUMAN_APPROVAL=elicit the person is asked first (an instruction hidden in an ad name could
+        // otherwise point the server at another account). The first connection, before any account is set, is always allowed.
+        const guard = async (what) => {
+          if (!cfg.account) return;
+          if (policy.readOnly) throw new Error(`SNAP_READ_ONLY is on, so this server will not ${what}. Turn read-only off in the settings (or run setup) if you really want to switch.`);
+          await humanApproval("snap_connect", { preview: { change: what } }, [], 0);
+        };
         // The shared login: no Client ID or secret on this computer. The browser sends the sealed token to a listener this
         // server opens on 127.0.0.1, so nothing has to be pasted into the chat.
         const shared = !e.SNAP_CLIENT_SECRET ? brokerUrlFrom(e) : null;
@@ -480,6 +488,7 @@ export function registerTools(server, client, env = process.env) {
           if (pendingShared?.token) {
             const token = pendingShared.token;
             pendingShared = null;
+            await guard("save a different Snapchat login");
             setEnvValue("SNAP_BROKER_URL", shared, file);
             setEnvValue("SNAP_REFRESH_TOKEN", token, file);
             e.SNAP_BROKER_URL = shared;
@@ -509,6 +518,7 @@ export function registerTools(server, client, env = process.env) {
           const accounts = await listAdAccounts(client);
           const chosen = accounts.find((a) => a.id === ad_account_id);
           if (!chosen) throw new Error("That ad account is not one this login can see. Call snap_connect with redirected_url again to list them.");
+          if (chosen.id !== cfg.account) await guard(`switch the ad account to ${chosen.name ?? chosen.id} (${chosen.id})`);
           setEnvValue("SNAP_AD_ACCOUNT_ID", chosen.id, file);
           if (/^[A-Z]{3}$/.test(chosen.currency ?? "")) setEnvValue("SNAP_ACCOUNT_CURRENCY", chosen.currency, file);
           return asResult({ ok: true, account: chosen, saved_to: file, next: "Quit and reopen the app (Claude Desktop: fully quit, then open it again), then call snap_ping. The account is fixed when the server starts, so a running server keeps its old account." });
@@ -524,6 +534,7 @@ export function registerTools(server, client, env = process.env) {
         if (!pendingState) throw new Error("Start with snap_connect without arguments to get a fresh link.");
         const token = await exchangeCode({ clientId: e.SNAP_CLIENT_ID, clientSecret: e.SNAP_CLIENT_SECRET, redirectUri, code: extractCode(redirected_url, pendingState), fetchImpl: client.fetch });
         pendingState = null;
+        await guard("save a different Snapchat login");
         setEnvValue("SNAP_REFRESH_TOKEN", token, file);
         e.SNAP_REFRESH_TOKEN = token;
         client.token = null;

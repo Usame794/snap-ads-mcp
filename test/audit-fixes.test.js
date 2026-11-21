@@ -160,3 +160,81 @@ test("F15: an ad schedule naming only some days is accepted through the tool, as
   assert.ok(r.data.approval_token, "a preview with an approval token");
   assert.doesNotMatch(JSON.stringify(r.data), /schedule\.monday/);
 });
+
+import { mkdtempSync as mk } from "node:fs";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { SnapClient } from "../src/snap.js";
+import { registerTools } from "../src/tools.js";
+
+// A server whose Snap answers the login's list of ad accounts, so snap_connect's account step can run.
+async function connectServer({ env = {}, account = "acc-1", elicit } = {}) {
+  const dir = mk(join(tmpdir(), "connect-"));
+  const file = join(dir, ".env");
+  writeFileSync(file, "SNAP_REFRESH_TOKEN=existing-token-1234567890\n");
+  const json = (b, s = 200) => ({ ok: s < 300, status: s, json: async () => b, headers: { get: () => null } });
+  const fetchImpl = async (url) => {
+    const u = new URL(String(url));
+    if (u.hostname.includes("accounts")) return json({ access_token: "t", expires_in: 1800 });
+    if (u.pathname.endsWith("/me/organizations")) return json({ organizations: [{ organization: { name: "Org", ad_accounts: [{ id: "acc-1", name: "One", status: "ACTIVE", currency: "USD" }, { id: "acc-2", name: "Two", status: "ACTIVE", currency: "USD" }] } }] });
+    return json({}, 404);
+  };
+  const full = { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "r", SNAP_LOG_FILE: join(dir, "log.jsonl"), ...(account ? { SNAP_AD_ACCOUNT_ID: account } : {}), ...env };
+  const server = new McpServer({ name: "t", version: "1" });
+  registerTools(server, new SnapClient({ env: full, fetchImpl, sleep: async () => {} }), full);
+  const client = new Client({ name: "c", version: "1" }, elicit ? { capabilities: { elicitation: { form: {} } } } : undefined);
+  if (elicit) client.setRequestHandler(ElicitRequestSchema, async (req) => elicit(req.params));
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const call = async (args) => {
+    const old = process.env.SNAP_ENV_FILE;
+    process.env.SNAP_ENV_FILE = file;
+    try {
+      const r = await client.callTool({ name: "snap_connect", arguments: args });
+      return { error: r.isError ? r.content[0].text : undefined, text: r.content?.[0]?.text, saved: readFileSync(file, "utf8") };
+    } finally {
+      if (old === undefined) delete process.env.SNAP_ENV_FILE;
+      else process.env.SNAP_ENV_FILE = old;
+    }
+  };
+  return { client, call };
+}
+
+test("F6: snap_connect is marked destructive", async () => {
+  const { client } = await connectServer();
+  const tool = (await client.listTools()).tools.find((x) => x.name === "snap_connect");
+  assert.equal(tool.annotations.destructiveHint, true);
+});
+
+test("F6: read-only mode refuses to switch the ad account once one is set, and writes nothing", async () => {
+  const { call } = await connectServer({ env: { SNAP_READ_ONLY: "1" } });
+  const r = await call({ ad_account_id: "acc-2" });
+  assert.match(r.error ?? "", /SNAP_READ_ONLY is on, so this server will not switch the ad account to Two/);
+  assert.doesNotMatch(r.saved, /SNAP_AD_ACCOUNT_ID/);
+});
+
+test("F6: the first connection (no ad account set yet) works even in read-only mode, and choosing the current account is not a switch", async () => {
+  const fresh = await connectServer({ env: { SNAP_READ_ONLY: "1" }, account: null });
+  const r = await fresh.call({ ad_account_id: "acc-2" });
+  assert.ok(!r.error, r.error);
+  assert.match(r.saved, /SNAP_AD_ACCOUNT_ID=acc-2/);
+  const same = await connectServer({ env: { SNAP_READ_ONLY: "1" } });
+  const again = await same.call({ ad_account_id: "acc-1" });
+  assert.ok(!again.error, again.error);
+});
+
+test("F6: with human approval on, switching the account asks the person; a refusal writes nothing, an approval saves it", async () => {
+  const asked = [];
+  const no = await connectServer({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async (p) => { asked.push(p.message); return { action: "decline" }; } });
+  const refused = await no.call({ ad_account_id: "acc-2" });
+  assert.ok(refused.error);
+  assert.match(asked[0], /snap_connect/);
+  assert.match(asked[0], /switch the ad account to Two/);
+  assert.doesNotMatch(refused.saved, /SNAP_AD_ACCOUNT_ID/);
+  const yes = await connectServer({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => ({ action: "accept", content: { approve: true } }) });
+  const ok = await yes.call({ ad_account_id: "acc-2" });
+  assert.ok(!ok.error, ok.error);
+  assert.match(ok.saved, /SNAP_AD_ACCOUNT_ID=acc-2/);
+});
