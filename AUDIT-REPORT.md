@@ -186,3 +186,12 @@ Not done yet (waiting for your decision, or optional): A2/A3/A4 consolidation (a
 | C3 | PASS | Rates already carry their unit in the name (`*_pct` for percent, `roas` as a ratio, money in account currency); noted, no change needed. |
 | C6 | PASS | One shared cut-off (`SNAP_MAX_RESPONSE_CHARS`, default 100000) with a note on how to ask for less. |
 | C7 | PARTIAL | `outputSchema` on all `snap_list_*` tools; other tools return `structuredContent` without a declared schema. |
+
+### Round three: consolidation (approved with "go")
+| ID | New status | What changed |
+|---|---|---|
+| A2 | PASS | Near-duplicates merged: `snap_set_status`, `snap_rename`, `snap_set_schedule`, `snap_exclude_segments` and `snap_set_daily_budget` take one id or many ids; `snap_report` takes `view` (table, daily, hourly, compare, audience). The old tools do the work unchanged, so every limit, preview and approval is the same. |
+| A3 | PASS | Follows from A2. |
+| A4 | PARTIAL | 85 tools became 76. A `core` set of 44 everyday tools is the Desktop extension default; `all` shows everything. The count is not near 40 because the remaining tools do different jobs. |
+| A6 | NOT DONE | Noun-first names (for example `snap_report_async_start`, `snap_audience_size`) were left as they are: all are `snap_` + snake_case, and renaming them would cost users more than it helps. |
+| Compatibility | n/a | Old names are hidden unless `SNAP_LEGACY_TOOLS=1`; then they appear as deprecated aliases that point to the new tool. |

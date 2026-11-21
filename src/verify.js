@@ -50,7 +50,7 @@ export function checksFor({ start, end, hasPixel, hasCountry }) {
     { tool: "snap_spend_pacing", args: {}, show: (d) => `${d.today?.active_squads ?? "?"} active ad squads; month so far ${d.month?.month_to_date_spend ?? "?"}` },
     { tool: "snap_anomaly_check", args: {}, show: (d) => `verdict ${d.verdict}${d.findings?.length ? ` (${d.findings.map((f) => f.code).join(", ")})` : ""}; ${d.days?.length ?? 0} days read` },
     { tool: "snap_funnel", args: { days: 7 }, show: (d) => `weakest step: ${d.weakest_step ?? "n/a"}${d.missing_steps?.length ? `; missing events: ${d.missing_steps.join(", ")}` : ""}` },
-    { tool: "snap_report_hourly", args: { days: 7 }, show: (d) => `best hours ${JSON.stringify(d.best_hours ?? [])}${d.coverage_pct != null ? `; covers ${d.coverage_pct}% of spend (${d.source})` : ""}` },
+    { tool: "snap_report", args: { view: "hourly", days: 7 }, show: (d) => `best hours ${JSON.stringify(d.best_hours ?? [])}${d.coverage_pct != null ? `; covers ${d.coverage_pct}% of spend (${d.source})` : ""}` },
     { tool: "snap_billing_check", args: {}, show: (d) => `verdict ${d.verdict}; ${d.funding_sources?.length ?? 0} funding source(s)` },
     { tool: "snap_audience_health", args: {}, show: (d) => `${d.audiences} audiences, ${d.with_problems} with problems` },
     { tool: "snap_unused_media", args: { limit: 5 }, show: (d) => `${d.unused_count} of ${d.media_total} files unused${d.warning ? " (list cut: partial)" : ""}` },

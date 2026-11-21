@@ -5,7 +5,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets an AI assistant 
 > **Unofficial.** Not affiliated with or endorsed by Snap Inc. This tool can change real ad campaigns that spend real money. You use it at your own risk (see LICENSE). Check Snap's developer terms for your own use. Review every preview before approving.
 
 ## Get started in 2 minutes
-**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account. In the Desktop extension, changes are **allowed from the start** (Read-only is off by default): each one is previewed and needs your approval, everything created starts paused, and the daily budget limit starts at 500 (change it in the extension's settings). Switch Read-only on there if you only want to look.
+**Claude Desktop (no terminal):** download `ads-mcp-for-snapchat-<version>.mcpb` from the [latest release](https://github.com/Usame794/snapchat-ads-mcp/releases/latest), open it, leave Client ID and secret empty, then ask Claude: "Connect my Snapchat ad account." Log in with Snapchat and pick the ad account. In the Desktop extension, changes are **allowed from the start** (Read-only is off by default): each one is previewed and needs your approval, everything created starts paused, and the daily budget limit starts at 500 (change it in the extension's settings). Switch Read-only on there if you only want to look. It also starts with the **core** tool set (44 everyday tools); type `all` in its Tool set field to see all 76.
 
 **Claude Code, Cursor, VS Code or a terminal:**
 ```bash
@@ -103,6 +103,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 |---|---|---|
 | `SNAP_MAX_DAILY_BUDGET` | 1000 | Highest daily budget any single campaign or ad squad may be given or enabled with |
 | `SNAP_MAX_RESPONSE_CHARS` | 100000 | Longest answer a tool returns; longer ones are cut with a note saying how to ask for less. |
+| `SNAP_LEGACY_TOOLS` | off | Set to 1 to also show the old tool names that were merged into other tools (for example `snap_set_status_bulk`, `snap_bulk_set_budget`, `snap_report_daily`). They work as before and say which tool replaced them. Off by default, so the assistant sees fewer tools. |
 | `SNAP_MEDIA_DIR` | (none) | Optional folder allow-list: when set, `snap_upload_media` and `snap_upload_customer_list` only read files inside this folder (symbolic links are resolved first). Recommended, so the server cannot be steered into reading other files on your computer. |
 | `SNAP_WARN_DAILY_BUDGET` | (none) | Optional **warning** level, not a limit: a change that adds more than this daily budget shows a `budget_warning` in the preview. Without it, the preview still warns when a change adds more than twice your largest running ad squad (or, on an account with none running, more than half of `SNAP_MAX_DAILY_BUDGET`). |
 | `SNAP_MIN_DAILY_BUDGET` | 5 | Lowest daily budget |
@@ -118,7 +119,7 @@ With this setting the server asks **you**, through the MCP client's own dialog (
 | `SNAP_BROKER_URL` | the maintainer's login service (`off` turns the shared login off) | The shared login service: connect with a normal Snapchat login and no OAuth app. https only. A refresh token is sent there, so use only a service you trust (see `PRIVACY.md`, `broker/README.md`). `setup` saves it for you. |
 | `SNAP_HOME` | `~/.ads-mcp-for-snapchat` for an npm install, the project folder for a git checkout | Where the settings file, the change log and `exports/` live. Set it to keep them somewhere else. |
 | `SNAP_PORTFOLIO_FILES` | (none) | Absolute paths of the settings files of the accounts for `snap_portfolio_summary`, comma-separated (up to 10). Only you can set it: the AI app cannot pick files. |
-| `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `setup, read, reports, checks, changes, create` (comma-separated). Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
+| `SNAP_TOOLSETS` | all | Show only some tool groups to the AI app: `core` (about 40 everyday tools: read, check and launch campaigns), or `setup, read, reports, checks, changes, create` (comma-separated, can be combined with core). The Claude Desktop extension starts with `core`; type `all` in its Tool set field to see every tool. Fewer tools make some apps faster and less error-prone, e.g. `setup,reports,checks` for an analyst. It only hides tools. |
 | `SNAP_HUMAN_APPROVAL` | off | `elicit` = ask the user through the MCP client before every write |
 | `SNAP_APPROVAL_TTL_SECONDS` | 600 | Lifetime of an approval token |
 | `SNAP_REPEAT_WINDOW_SECONDS` | 600 | An identical create, copy, claim or upload is refused within this time |
@@ -158,7 +159,6 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_capi_status`, `snap_capi_test_event` | Conversions API TEST events only: read the last test events and their errors; send one test event (previewed, email hashed). No tool sends real conversion events. |
 | `snap_set_frequency_cap` | write (preview + approval): at most N impressions per person per N hours/days, or clear it |
 | `snap_set_ad_schedule` | write (preview + approval): which hours of which days ads run; Snap allows it only on lifetime-budget ad squads |
-| `snap_report_hourly` | read: spend, purchases and ROAS by local hour of the day (last 1-7 days), best and worst hours |
 | `snap_creative_compare` | read: the ads of a campaign or ad squad ranked against the median ROAS (WINNER / LAGGING), grouped by call to action |
 | `snap_budget_advice` | read: suggested daily-budget moves (lower the weak, raise the proven, funded by what is freed, inside your limits), each naming the tool that applies it |
 | `snap_billing_check` | read: ad account status, funding sources (card expiry, daily limit vs budgets, credit left) and a verdict |
@@ -171,30 +171,26 @@ Ready-made instructions in Claude's prompt menu (the "+" or "/" menu). They only
 | `snap_portfolio_summary` | read: all your ad accounts side by side (yesterday and last 7 days, what needs attention, totals per currency). Reads the settings files you list in `SNAP_PORTFOLIO_FILES`; the AI app cannot choose files. |
 | `snap_connect` | connect an ad account from inside the chat (link, pasted address, account choice); saves access on this computer, changes no ads |
 | `snap_list_campaigns`, `snap_list_adsquads`, `snap_list_ads`, `snap_list_creatives`, `snap_get_entity`, `snap_get_media`, `snap_get_stats` | read |
-| `snap_report` | read: ROAS, CPA, swipe rate, frequency by ad squad or ad |
-| `snap_report_daily` | read: day-by-day performance (up to 31 days) |
-| `snap_report_audience` | read: performance by country, gender, age, region, dma or make |
+| `snap_report` | read: performance reports. `view` = `table` (ROAS, CPA, swipe rate, frequency by ad squad or ad; the default), `daily` (day by day, up to 31 days), `hourly` (by local hour of the day, last 1-7 days, best and worst hours), `compare` (two time windows side by side) or `audience` (by country, gender, age, region, dma or make) |
 | `snap_health_check` | read: audits every active squad for missing buyer exclusion, high frequency, low swipe rate, low ROAS, spend with no purchases, paused parents |
 | `snap_review_issues` | read: rejected / pending ads with Snap's reasons |
 | `snap_pixel_health` | read: pixel signal readiness and event-quality issues, top priority first |
 | `snap_creative_fatigue` | read: which ads are tired (ROAS down 30%+ with higher frequency or lower swipe rate), which to replace first |
-| `snap_report_compare` | read: two time windows side by side with the changes |
 | `snap_report_async_start`, `snap_report_async_status`, `snap_report_async_download` | read: very large CSV reports saved to `exports/` |
 | `snap_api_get` | read-only GET for anything else (allow-listed paths, never writes) |
 | `snap_list_segments`, `snap_list_pixels`, `snap_list_catalogs`, `snap_list_product_sets`, `snap_targeting_options` | read: audiences, pixels, catalogs, product sets, interest/region/language ids |
 | `snap_change_log` | read the local log |
-| `snap_set_status`, `snap_set_status_bulk` | pause / enable (bulk up to 20, warns when a parent is paused) |
-| `snap_set_daily_budget`, `snap_set_bid`, `snap_rename` | edit |
+| `snap_set_status` | pause / enable one item (`id`) or up to 20 (`ids`; skips items already in that state, warns when a parent is paused) |
+| `snap_set_daily_budget`, `snap_set_bid`, `snap_rename` | edit. `snap_set_daily_budget` also takes `adsquad_ids` with `mode` set or scale for up to 20 ad squads; `snap_rename` takes `ids` with `find` and `replace` for up to 20 items |
 | `snap_set_targeting` | change countries, age, gender, interests, device OS, include segments, stop excluding segments; everything else is kept |
-| `snap_set_schedule` | set start/end time on a campaign or ad squad |
-| `snap_exclude_segments` | add buyer-exclusion audiences to an ad squad |
+| `snap_set_schedule` | set start/end time on a campaign or ad squad (`id`), or on up to 20 (`ids`) |
+| `snap_exclude_segments` | add buyer-exclusion audiences to an ad squad (`adsquad_id`), or to up to 20 (`adsquad_ids`) |
 | `snap_copy_campaign` | copy a campaign (all or selected ad squads, with or without ads), paused |
 | `snap_create_campaign` | create a new empty campaign, paused |
 | `snap_create_adsquad` | create a new purchase-optimized web ad squad (max bid or auto-bid, interests, device OS, buyer exclusions), paused |
 | `snap_create_lookalike` | create a lookalike audience from a customer-list seed |
 | `snap_copy_adsquad` | copy one ad squad into a campaign, paused |
 | `snap_clone_ad` | clone an ad into other ad squads, paused (skips duplicates and different product sets) |
-| `snap_bulk_exclude_segments`, `snap_bulk_set_budget`, `snap_bulk_set_schedule`, `snap_bulk_rename` | edit up to 20 items at once with a per-item preview; stop at the first failure |
 | `snap_undo` | revert a change from the log (refuses if the field changed again since) |
 | `snap_clone_creative` | duplicate a creative with a new name/headline/link |
 | `snap_create_pixel_audience` | audience of people who fired pixel events (e.g. ADD_CART) |
