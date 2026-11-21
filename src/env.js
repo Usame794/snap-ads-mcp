@@ -52,6 +52,9 @@ export function loadEnv(file = envFile(), { override = false } = {}) {
 // Writes or replaces KEY=value in the settings file in use (see envFile) without printing the value. With SNAP_ENV_FILE set,
 // authorizing a second account writes that account's file and never touches the first one.
 export function setEnvValue(key, value, file = envFile()) {
+  // A value is one line of KEY=value. A line break (or any control character) in a value would write extra settings.
+  if (!/^[A-Z][A-Z0-9_]*$/.test(String(key))) throw new Error(`Not a setting name: ${String(key).slice(0, 40)}`);
+  if (/[\u0000-\u001f\u007f]/.test(String(value))) throw new Error(`The value for ${key} has a line break or control character; refusing to write it to the settings file.`);
   let text = "";
   try {
     text = readFileSync(file, "utf8");

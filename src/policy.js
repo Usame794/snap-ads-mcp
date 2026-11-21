@@ -101,7 +101,7 @@ export function loadPolicy(env = process.env) {
     httpTimeoutMs: readNumber(env, "SNAP_HTTP_TIMEOUT_MS", 60000, { min: 1000, max: 600000, integer: true }, errors),
     legacyTools: readChoice(env, "SNAP_LEGACY_TOOLS", false, BOOL, errors),
     readOnly: readChoice(env, "SNAP_READ_ONLY", false, BOOL, errors),
-    humanApproval: readChoice(env, "SNAP_HUMAN_APPROVAL", "off", { off: "off", elicit: "elicit" }, errors),
+    humanApproval: readChoice(env, "SNAP_HUMAN_APPROVAL", "off", { off: "off", elicit: "elicit", false: "off", no: "off", 0: "off", true: "elicit", on: "elicit", yes: "elicit", 1: "elicit" }, errors),
     currency: null,
   };
   if (env.SNAP_ACCOUNT_CURRENCY !== undefined && String(env.SNAP_ACCOUNT_CURRENCY).trim() !== "") {

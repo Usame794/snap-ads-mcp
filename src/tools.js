@@ -18,6 +18,7 @@ import { buildDynamicCreative, buildDynamicTemplate, buildProductSet, creativePr
 import { brokerUrlFrom, startBrokerLogin } from "./broker.js";
 import { assertFileAllowed } from "./media-dir.js";
 import { PARAM_DOCS, TOOL_HINTS } from "./tool-docs.js";
+import { shiftIso } from "./fatigue.js";
 import { APP_TOOLS, APP_URIS, registerApps, uiMeta } from "./apps.js";
 import { boardData, dashboardData } from "./dashboard.js";
 import { changeHistory, setupCheck } from "./interactive.js";
@@ -126,11 +127,15 @@ export function registerTools(server, client, env = process.env) {
     }
     return next;
   };
-  // A plain date (YYYY-MM-DD) is accepted wherever Snap needs a time on the hour: it means 00:00 that day in SNAP_REPORT_UTC_OFFSET.
-  const DATE_KEYS = ["start_time", "end_time", "current_start", "current_end", "previous_start", "previous_end"];
+  // A plain date (YYYY-MM-DD) is accepted wherever Snap needs a time on the hour, in SNAP_REPORT_UTC_OFFSET. A start date means the
+  // beginning of that day. An end date means the end of that day (the beginning of the next), so "end on the 30th" includes the 30th.
+  const START_KEYS = ["start_time", "current_start", "previous_start"];
+  const END_KEYS = ["end_time", "current_end", "previous_end"];
+  const PLAIN_DATE = /^\d{4}-\d{2}-\d{2}$/;
   const withDates = (handler) => (args, ...more) => {
     let next = args;
-    for (const k of DATE_KEYS) if (typeof next?.[k] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(next[k])) next = { ...next, [k]: `${next[k]}T00:00:00${policy.reportUtcOffset}` };
+    for (const k of START_KEYS) if (typeof next?.[k] === "string" && PLAIN_DATE.test(next[k])) next = { ...next, [k]: `${next[k]}T00:00:00${policy.reportUtcOffset}` };
+    for (const k of END_KEYS) if (typeof next?.[k] === "string" && PLAIN_DATE.test(next[k])) next = { ...next, [k]: shiftIso(`${next[k]}T00:00:00${policy.reportUtcOffset}`, 86_400_000) };
     return handler(next, ...more);
   };
   const LIST_OUTPUT = z.object({
@@ -241,6 +246,19 @@ export function registerTools(server, client, env = process.env) {
   const logFile = env.SNAP_LOG_FILE || (env.SNAP_ENV_FILE ? `${env.SNAP_ENV_FILE}.log.jsonl` : LOG_FILE);
   const approvals = new ApprovalStore({ ttlMs: policy.approvalTtlSeconds * 1000, repeatWindowMs: policy.repeatWindowSeconds * 1000 });
   const ownership = new Ownership(client);
+  // Pixel and audience ids given as arguments must belong to the configured ad account. (A pixel set in the settings file is the
+  // owner's own choice and is not re-checked.) Snap may refuse a foreign id itself, but this server does not rely on that.
+  const assertPixel = async (pixelId) => {
+    if (!pixelId || pixelId === cfg.pixel) return;
+    if (!(await listPixels(client, account())).some((p) => p.id === pixelId)) throw new Error(`Pixel ${pixelId} is not one of this ad account's pixels (see snap_list_pixels); refusing to use it.`);
+  };
+  const assertSegments = async (ids) => {
+    const wanted = [...new Set((ids ?? []).filter(Boolean))];
+    if (!wanted.length) return;
+    const have = new Set((await listSegments(client, account(), { minSize: 0 })).map((s) => s.id));
+    const missing = wanted.filter((s) => !have.has(s));
+    if (missing.length) throw new Error(`Audience ${missing.join(", ")} is not one of this ad account's audiences (see snap_list_segments); refusing to use it.`);
+  };
   const history = (entityId, field) => windowStartMicro(logFile, entityId, field);
 
   const defaultCountries = () => {
@@ -278,6 +296,8 @@ export function registerTools(server, client, env = process.env) {
   // answer travel between server and client UI; they are not part of any tool result, so the model neither sees the
   // confirmation code nor can answer for the user. Fails closed whenever the client cannot ask.
   // (A client can still be configured to answer elicitations automatically, e.g. with a hook. That is outside this server.)
+  // Names come from the ad account and can hold line breaks. In the question, text from outside is always one line.
+  const oneLine = (s, max) => String(s).replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/ {2,}/g, " ").trim().slice(0, max);
   async function humanApproval(tool, p, targetIds, added) {
     if (policy.humanApproval !== "elicit") return;
     const sensitive = added > 0 || tool === "snap_delete" || tool === "snap_undo";
@@ -286,7 +306,7 @@ export function registerTools(server, client, env = process.env) {
       `${tool} on ad account ${cfg.account ?? "?"}`,
       targetIds.length ? `Targets (${targetIds.length}): ${targetIds.slice(0, 5).join(", ")}${targetIds.length > 5 ? ", ..." : ""}` : null,
       added > 0 ? `THIS ADDS ${added} PER DAY of budget (account currency).` : null,
-      typeof p.preview?.change === "string" ? `Change: ${p.preview.change}` : null,
+      typeof p.preview?.change === "string" ? `Change: ${oneLine(p.preview.change, 300)}` : null,
       code ? `To approve, tick the box AND type this code: ${code}` : "To approve, tick the box.",
     ].filter(Boolean);
     const properties = { approve: { type: "boolean", title: "Approve this change", description: "Tick to let this exact change run." } };
@@ -349,7 +369,7 @@ export function registerTools(server, client, env = process.env) {
             approvals.precheck(name, approval_token);
           }
           await ensureCurrency();
-          const p = await prepare(params);
+          let p = await prepare(params);
           for (const t of p.targets ?? []) await ownership.assert(t.entity, t.obj, account());
           const targetIds = p.targetIds ?? (p.targets ?? []).map((t) => t.obj.id);
           const added = round2(p.addedDailyBudget ?? 0);
@@ -386,6 +406,14 @@ export function registerTools(server, client, env = process.env) {
             if (repeat) throw new Error(`An identical ${name} request was already executed ${repeat.seconds_ago}s ago (${JSON.stringify(repeat.summary)}). Not repeating it. If a second one is really wanted, give it a different name or wait ${policy.repeatWindowSeconds}s.`);
           }
           await humanApproval(name, p, targetIds, added);
+          if (policy.humanApproval === "elicit") {
+            // A person may take minutes to answer. Read everything again and compare with what they were shown: if anything the change
+            // depends on moved meanwhile (a campaign paused in Ads Manager, a budget edited), nothing is sent.
+            const again = await prepare(params);
+            const rebound = digest({ requestDigest, state: stabilizeState(again.state ?? null) });
+            if (again.blocked || rebound !== binding) throw new Error("Not applied: the item changed while the approval question was open (someone edited it, or it is no longer allowed). Nothing was sent. Preview it again.");
+            p = again;
+          }
           const event = { tool: name, account: cfg.account ?? null, targets: targetIds };
           // Checked again and recorded in one synchronous step, so two calls running at once cannot both slip under the limit.
           spendLedger(added);
@@ -458,12 +486,20 @@ export function registerTools(server, client, env = process.env) {
       description:
         "Connect this server to a Snapchat ad account, from inside the chat. Step 1: call with no arguments; it returns a link for the person to open and approve. Step 2: the person pastes the address the browser landed on; call with redirected_url, and it saves access on this computer and lists the ad accounts. Step 3: call with ad_account_id to choose one, then the app must be restarted. Changes no ads.",
       inputSchema: z.object({ redirected_url: z.string().max(4000).optional(), ad_account_id: id().optional() }).strict(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async ({ redirected_url, ad_account_id }) => {
       try {
         const e = client.env;
         const file = envFile();
+        // Changing which login or ad account this server acts on is a change like any other: once an ad account is set, read-only mode
+        // refuses it, and with SNAP_HUMAN_APPROVAL=elicit the person is asked first (an instruction hidden in an ad name could
+        // otherwise point the server at another account). The first connection, before any account is set, is always allowed.
+        const guard = async (what) => {
+          if (!cfg.account) return;
+          if (policy.readOnly) throw new Error(`SNAP_READ_ONLY is on, so this server will not ${what}. Turn read-only off in the settings (or run setup) if you really want to switch.`);
+          await humanApproval("snap_connect", { preview: { change: what } }, [], 0);
+        };
         // The shared login: no Client ID or secret on this computer. The browser sends the sealed token to a listener this
         // server opens on 127.0.0.1, so nothing has to be pasted into the chat.
         const shared = !e.SNAP_CLIENT_SECRET ? brokerUrlFrom(e) : null;
@@ -472,6 +508,7 @@ export function registerTools(server, client, env = process.env) {
           if (pendingShared?.token) {
             const token = pendingShared.token;
             pendingShared = null;
+            await guard("save a different Snapchat login");
             setEnvValue("SNAP_BROKER_URL", shared, file);
             setEnvValue("SNAP_REFRESH_TOKEN", token, file);
             e.SNAP_BROKER_URL = shared;
@@ -501,6 +538,7 @@ export function registerTools(server, client, env = process.env) {
           const accounts = await listAdAccounts(client);
           const chosen = accounts.find((a) => a.id === ad_account_id);
           if (!chosen) throw new Error("That ad account is not one this login can see. Call snap_connect with redirected_url again to list them.");
+          if (chosen.id !== cfg.account) await guard(`switch the ad account to ${chosen.name ?? chosen.id} (${chosen.id})`);
           setEnvValue("SNAP_AD_ACCOUNT_ID", chosen.id, file);
           if (/^[A-Z]{3}$/.test(chosen.currency ?? "")) setEnvValue("SNAP_ACCOUNT_CURRENCY", chosen.currency, file);
           return asResult({ ok: true, account: chosen, saved_to: file, next: "Quit and reopen the app (Claude Desktop: fully quit, then open it again), then call snap_ping. The account is fixed when the server starts, so a running server keeps its old account." });
@@ -516,6 +554,7 @@ export function registerTools(server, client, env = process.env) {
         if (!pendingState) throw new Error("Start with snap_connect without arguments to get a fresh link.");
         const token = await exchangeCode({ clientId: e.SNAP_CLIENT_ID, clientSecret: e.SNAP_CLIENT_SECRET, redirectUri, code: extractCode(redirected_url, pendingState), fetchImpl: client.fetch });
         pendingState = null;
+        await guard("save a different Snapchat login");
         setEnvValue("SNAP_REFRESH_TOKEN", token, file);
         e.SNAP_REFRESH_TOKEN = token;
         client.token = null;
@@ -922,6 +961,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async (a) => {
+      await assertPixel(a.pixel_id);
       const pixel = a.pixel_id ?? cfg.pixel;
       const event = buildTestEvent({ eventName: a.event_name, sourceUrl: a.event_source_url, email: a.email, value: a.value, currency: a.currency, orderId: a.order_id });
       return {
@@ -1139,7 +1179,10 @@ export function registerTools(server, client, env = process.env) {
       shape: { adsquad_id: id(), segment_ids: z.array(id()).min(1) },
       destructive: true,
     },
-    ({ adsquad_id, segment_ids }) => change("adsquad", adsquad_id, (cur) => planExcludeSegments(cur, segment_ids)),
+    async ({ adsquad_id, segment_ids }) => {
+      await assertSegments(segment_ids);
+      return change("adsquad", adsquad_id, (cur) => planExcludeSegments(cur, segment_ids));
+    },
   );
 
   write(
@@ -1168,10 +1211,13 @@ export function registerTools(server, client, env = process.env) {
         if (resume.status !== "PAUSED") throw new Error("resume_campaign_id must be a PAUSED campaign left by a failed copy");
         targets.push({ entity: "campaign", obj: resume });
       }
+      // Ad squads already in the campaign being filled are reused as they are, whatever their status or budget (matched by name).
+      // Show them, so the person sees what is already there before confirming.
+      const alreadyThere = resume ? (await client.listChildren("campaign", resume.id, "adsquad")).map((s) => ({ id: s.id, name: s.name, status: s.status, daily_budget: s.daily_budget_micro != null ? s.daily_budget_micro / 1e6 : null })) : [];
       return {
         targets,
-        state: { campaign: src.campaign, squads: src.squads, ads: src.adsBySquad, resume },
-        preview: { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." },
+        state: { campaign: src.campaign, squads: src.squads, ads: src.adsBySquad, resume, alreadyThere },
+        preview: { applied: false, dry_run: true, source: src.campaign.name, would_create: plan.summary, ...(resume ? { already_in_the_target_campaign: alreadyThere, reuse_note: "Ad squads already in the target campaign are reused as they are (matched by name), with their current status and budget. Only what is missing is created." } : {}), note: "Nothing was created. Re-run with confirm=true to create it (all PAUSED)." },
         execute: async () => ({ applied: true, created: await executeCopy({ client, plan, sourceCampaignId: campaign_id, resumeCampaignId: resume_campaign_id, logFile }), note: "Everything is PAUSED. Review in Ads Manager, then enable the campaign, ad squads and ads." }),
       };
     },
@@ -1241,7 +1287,8 @@ export function registerTools(server, client, env = process.env) {
         const obj = buildDynamicCreative({ adAccountId: account(), profileId: brandProfile(profile_id), name, headline, callToAction: call_to_action, templateId: dynamic_template_id, productSetId: product_set_id, urlMacroParameters: url_macro_parameters });
         await ownProductSet(product_set_id);
         const template = await client.getEntity("dynamic_template", dynamic_template_id);
-        if (template.ad_account_id && template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
+        if (!template.ad_account_id) throw new Error("Snap did not say which ad account that dynamic template belongs to, so it cannot be verified; refusing to use it.");
+        if (template.ad_account_id !== account()) throw new Error("That dynamic template belongs to another ad account; refusing to use it.");
         return {
           targetIds: [dynamic_template_id, product_set_id],
           state: { template: template.id },
@@ -1485,7 +1532,7 @@ export function registerTools(server, client, env = process.env) {
       description: "Choose which hours of which days an ad squad's ads run (hours 0-23 in each viewer's local time), or run every hour. Snap allows this only on LIFETIME-budget ad squads, so it is refused on daily-budget ones. A narrow schedule lowers delivery. Undo works when a schedule existed before. Previews unless confirm=true.",
       shape: {
         adsquad_id: id(),
-        schedule: z.record(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), z.array(z.number().int().min(0).max(23)).min(1).max(24)).optional().describe("e.g. {\"friday\": [18,19,20,21], \"saturday\": [18,19,20,21]}"),
+        schedule: z.partialRecord(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), z.array(z.number().int().min(0).max(23)).min(1).max(24)).optional().describe("e.g. {\"friday\": [18,19,20,21], \"saturday\": [18,19,20,21]}"),
         always: z.boolean().default(false).describe("true = every hour of every day"),
       },
     },
@@ -1602,6 +1649,8 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async (a) => {
+      await assertPixel(a.pixel_id);
+      await assertSegments([...(a.include_segment_ids ?? []), ...(a.exclude_segment_ids ?? [])]);
       const campaign = await client.getEntity("campaign", a.campaign_id);
       if (a.product_set_id) {
         const catalogId = campaign.product_properties?.catalog_id;
@@ -1641,8 +1690,10 @@ export function registerTools(server, client, env = process.env) {
       },
       destructive: true,
     },
-    ({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions }) =>
-      change("adsquad", adsquad_id, (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions })),
+    async ({ adsquad_id, countries, min_age, max_age, gender, interests, clear_interests, os_type, clear_devices, include_segments, remove_exclusions }) => {
+      await assertSegments(include_segments);
+      return change("adsquad", adsquad_id, (cur) => planTargeting(cur, { countries, minAge: min_age, maxAge: max_age, gender, interests, clearInterests: clear_interests, osType: os_type, clearDevices: clear_devices, includeSegments: include_segments, removeExclusions: remove_exclusions }));
+    },
   );
 
   write(
@@ -1698,7 +1749,10 @@ export function registerTools(server, client, env = process.env) {
   write(
     "snap_bulk_exclude_segments",
     { description: "Add the same buyer-exclusion audiences to up to 20 ad squads. Per-item preview (skips squads that already exclude them); stops at the first failure. Previews unless confirm=true.", shape: { adsquad_ids: idsField, segment_ids: z.array(id()).min(1) }, destructive: true },
-    ({ adsquad_ids, segment_ids }) => bulk("adsquad", adsquad_ids, plans.exclude(segment_ids)),
+    async ({ adsquad_ids, segment_ids }) => {
+      await assertSegments(segment_ids);
+      return bulk("adsquad", adsquad_ids, plans.exclude(segment_ids));
+    },
   );
 
   write(
@@ -1803,6 +1857,7 @@ export function registerTools(server, client, env = process.env) {
       repeatGuard: true,
     },
     async ({ name, events, retention_days, pixel_id }) => {
+      await assertPixel(pixel_id);
       const obj = buildPixelAudience({ adAccountId: account(), pixelId: pixel_id ?? cfg.pixel, name, events, retentionDays: retention_days });
       return {
         preview: { applied: false, dry_run: true, would_create: { name: obj.name, events, retention_days, pixel_id: obj.pixel_id }, note: "Nothing created. Re-run with confirm=true." },

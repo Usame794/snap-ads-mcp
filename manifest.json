@@ -5,7 +5,7 @@
   "display_name": "Ads MCP for Snapchat",
   "version": "0.9.8",
   "description": "Snapchat Ads reports, audits and safe, previewed changes to campaigns, ad squads and ads.",
-  "long_description": "Unofficial. Runs on your computer. Claude can create and change campaigns: every change is previewed and needs your approval, everything it creates starts paused, and your daily budget limit always applies; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
+  "long_description": "Unofficial. Runs on your computer. Claude can create and change campaigns: every change is previewed first and applied only with that preview's approval token (Claude holds the token, so turn on \\\"Ask me before every change\\\" if you want to be asked yourself), everything it creates starts paused, and your daily budget limit always applies; money limits, a change log and undo are built in. After installing, ask Claude: \"connect my Snapchat ad account\". You only log in with Snapchat (shared login); or use your own Snapchat OAuth app by filling in the Client ID and secret.",
   "author": {
     "name": "Usame794",
     "url": "https://github.com/Usame794"
@@ -40,7 +40,8 @@
         "SNAP_DEFAULT_COUNTRY": "${user_config.default_country}",
         "SNAP_READ_ONLY": "${user_config.read_only}",
         "SNAP_TOOLSETS": "${user_config.toolsets}",
-        "SNAP_TOOLSETS_DEFAULT": "core"
+        "SNAP_TOOLSETS_DEFAULT": "core",
+        "SNAP_HUMAN_APPROVAL": "${user_config.human_approval}"
       }
     }
   },
@@ -76,7 +77,7 @@
     "read_only": {
       "type": "boolean",
       "title": "Read-only",
-      "description": "Off (the default): Claude can create and change campaigns, but every change is previewed and needs your approval, and everything it creates starts paused. Turn on to let Claude read and preview only.",
+      "description": "Off (the default): Claude can create and change campaigns. Every change is previewed first, everything it creates starts paused, and your money limits apply. Turn on to let Claude read and preview only.",
       "default": false,
       "required": true
     },
@@ -85,6 +86,13 @@
       "title": "Tool set",
       "description": "Optional. core (the default) = 48 everyday tools: read, check, launch campaigns. Type all to show every tool, or a list such as core,reports.",
       "default": "core",
+      "required": false
+    },
+    "human_approval": {
+      "type": "boolean",
+      "title": "Ask me before every change",
+      "description": "Optional. On: you are asked in a dialog to approve each change (adding spend also needs a code that Claude cannot see). Off (the default): Claude previews and applies changes itself within your limits. If your app cannot show the dialog, changes are refused while this is on.",
+      "default": false,
       "required": false
     }
   },

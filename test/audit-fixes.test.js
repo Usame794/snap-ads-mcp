@@ -1,0 +1,419 @@
+import { webcrypto } from "node:crypto";
+// Regression tests for the findings of the independent security audit of 0.9.6. Each test was first written as a proof of concept
+// that passed while the bug existed (see the audit report); here each one asserts the fix.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startBrokerLogin } from "../src/broker.js";
+import { seal } from "../src/hybrid.js";
+import { setEnvValue, readEnvFile } from "../src/env.js";
+
+async function forge(value) {
+  const login = await startBrokerLogin({ brokerUrl: "https://broker.example", timeoutMs: 2000 });
+  const u = new URL(login.url);
+  const pk = u.searchParams.get("pk"), nonce = u.searchParams.get("nonce"), port = u.searchParams.get("port");
+  const sealed = await seal(pk, value, nonce, webcrypto);
+  const cb = new URL(`http://127.0.0.1:${port}/callback`);
+  cb.search = new URLSearchParams({ nonce, epk: sealed.epk, salt: sealed.salt, iv: sealed.iv, ct: sealed.ct }).toString();
+  const status = (await fetch(cb)).status;
+  return { login, status };
+}
+
+test("F2: a forged login value with line breaks is refused by the listener, and the login is still waiting", async () => {
+  const { login, status } = await forge("x-attacker-token\nSNAP_HUMAN_APPROVAL=off\nSNAP_MAX_ADDED_DAILY_BUDGET_24H=1000000000");
+  assert.equal(status, 400);
+  login.close();
+  await login.done.catch(() => {});
+});
+
+test("F2: a value that is not shaped like a token is refused, a real-looking token is accepted", async () => {
+  const bad = await forge("has spaces in it 1234567890");
+  assert.equal(bad.status, 400);
+  bad.login.close();
+  await bad.login.done.catch(() => {});
+  const good = await forge("eyJhbGciOiJIUzI1NiJ9.abc_DEF-123.sig/part+more=");
+  assert.equal(good.status, 200);
+  assert.equal(await good.login.done, "eyJhbGciOiJIUzI1NiJ9.abc_DEF-123.sig/part+more=");
+});
+
+test("F2: setEnvValue refuses line breaks and control characters in a value, and bad setting names", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "env-")), ".env");
+  assert.throws(() => setEnvValue("SNAP_REFRESH_TOKEN", "a\nSNAP_HUMAN_APPROVAL=off", file), /line break/);
+  assert.throws(() => setEnvValue("SNAP_REFRESH_TOKEN", "a\rb", file), /line break|control/);
+  assert.throws(() => setEnvValue("SNAP_REFRESH_TOKEN", "a\u0000b", file), /control/);
+  assert.throws(() => setEnvValue("bad key", "x", file), /Not a setting name/);
+  assert.throws(() => setEnvValue("SNAP_X\nSNAP_Y", "x", file), /Not a setting name/);
+  setEnvValue("SNAP_REFRESH_TOKEN", "fine.token-value_1", file);
+  assert.deepEqual(Object.keys(readEnvFile(file)), ["SNAP_REFRESH_TOKEN"]);
+});
+
+import { setup, sampleWorld, ACC } from "./helpers/harness.js";
+
+function cboWorld(budget = 50_000, squadBudget = undefined) {
+  const w = sampleWorld();
+  w.campaigns.cbo = { id: "cbo", name: "CBO", status: "PAUSED", ad_account_id: ACC, daily_budget_micro: budget * 1e6, updated_at: "t0" };
+  w.adsquads.q1 = { id: "q1", name: "Q1", status: "ACTIVE", campaign_id: "cbo", targeting: {}, updated_at: "t0", ...(squadBudget ? { daily_budget_micro: squadBudget * 1e6 } : {}) };
+  return w;
+}
+
+test("F3: enabling a campaign with its own daily budget is counted and limited, not waved through", async () => {
+  const h = await setup({ world: cboWorld(), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.match(r.error ?? "", /campaign "CBO" has a daily budget of 50000.*SNAP_MAX_DAILY_BUDGET/);
+  assert.equal(h.db.campaigns.cbo.status, "PAUSED");
+  assert.equal(h.writes().length, 0);
+});
+
+test("F3: a campaign budget within the limits is counted in the amount that starts delivering", async () => {
+  const h = await setup({ world: cboWorld(80), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const preview = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.equal(preview.data.activation.daily_budget_that_starts_delivering, 80);
+  assert.equal(preview.data.spend_impact.adds_daily_budget, 80);
+  const squads = await h.call("snap_set_status", { entity: "campaign", id: "c2", status: "ACTIVE" });
+  assert.equal(squads.data.activation.daily_budget_that_starts_delivering, 80, "campaigns without their own budget are counted as before");
+});
+
+test("F3: when the squads carry the budget, the campaign budget does not count twice", async () => {
+  const h = await setup({ world: cboWorld(60, 60), env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "campaign", id: "cbo", status: "ACTIVE" });
+  assert.equal(r.data.activation.daily_budget_that_starts_delivering, 60, "max of the squads' budgets and the campaign budget, not the sum");
+});
+
+test("F3: the first ad squad to deliver under an ACTIVE campaign with its own budget counts that budget", async () => {
+  const w = cboWorld(70);
+  w.campaigns.cbo.status = "ACTIVE";
+  w.adsquads.q1.status = "PAUSED";
+  const h = await setup({ world: w, env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  const r = await h.call("snap_set_status", { entity: "adsquad", id: "q1", status: "ACTIVE" });
+  assert.equal(r.data.activation.daily_budget_that_starts_delivering, 70);
+  const big = cboWorld(5000);
+  big.campaigns.cbo.status = "ACTIVE";
+  big.adsquads.q1.status = "PAUSED";
+  const h2 = await setup({ world: big, env: { SNAP_MAX_DAILY_BUDGET: "100" } });
+  assert.match((await h2.call("snap_set_status", { entity: "adsquad", id: "q1", status: "ACTIVE" })).error ?? "", /campaign "CBO" has a daily budget of 5000/);
+});
+
+test("F1: a target edited during the human approval question is refused, not overwritten", async () => {
+  let h;
+  h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => {
+    h.db.campaigns.c1 = { ...h.db.campaigns.c1, status: "PAUSED", updated_at: "t-human" }; // paused in Ads Manager while the dialog is open
+    return { action: "accept", content: { approve: true } };
+  } });
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  assert.match(applied.error ?? "", /changed while the approval question was open/);
+  assert.equal(h.db.campaigns.c1.status, "PAUSED", "the person's pause stands");
+  assert.equal(h.db.campaigns.c1.name, "Campaign c1", "the rename was not applied");
+  assert.equal(h.writes().length, 0);
+});
+
+test("F1: an unchanged item is still applied after the approval question", async () => {
+  const h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => ({ action: "accept", content: { approve: true } }) });
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  assert.ok(!applied.error, applied.error);
+  assert.equal(h.db.campaigns.c1.name, "Renamed c1");
+});
+
+test("F1: without the approval question, a change made between the preview and the apply is still not overwritten", async () => {
+  const h = await setup();
+  const preview = await h.call("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  h.db.campaigns.c1 = { ...h.db.campaigns.c1, status: "PAUSED", updated_at: "t-other" };
+  const applied = await h.call("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1", confirm: true, approval_token: preview.data.approval_token });
+  assert.ok(applied.error, "refused");
+  assert.equal(h.db.campaigns.c1.status, "PAUSED");
+});
+
+import { checkReadPath } from "../src/readers.js";
+
+test("F5: encoded dot segments and other tricks are refused in snap_api_get paths", () => {
+  for (const bad of ["/adaccounts/%2e%2e/%2e%2e/oauth2/x", "/adaccounts/%2E%2E/x", "/adaccounts/a%2fb", "/adaccounts/x#y", "/adaccounts/a\\b", "/adaccounts/x\n", "/adaccounts/../me"]) assert.throws(() => checkReadPath(bad), /path must start with/, JSON.stringify(bad));
+  assert.equal(checkReadPath("/adaccounts/abc-123/campaigns"), "/adaccounts/abc-123/campaigns");
+  assert.equal(checkReadPath("/me"), "/me");
+});
+
+test("F8: undo with force cannot restore a daily budget above the ceiling, even when the item is on a lifetime budget now", async () => {
+  const w = sampleWorld();
+  w.adsquads.big = { id: "big", name: "Big", status: "PAUSED", campaign_id: "c1", daily_budget_micro: 2000e6, bid_micro: 2e6, targeting: {}, updated_at: "t0" };
+  const h = await setup({ world: w, env: { SNAP_MAX_DAILY_BUDGET: "1000" } });
+  assert.ok(!(await h.twoStep("snap_set_daily_budget", { entity: "adsquad", id: "big", daily_budget: 500 })).applied.error);
+  h.db.adsquads.big = { ...h.db.adsquads.big, daily_budget_micro: null, lifetime_budget_micro: 9000e6, updated_at: "t-x" };
+  const undo = await h.call("snap_undo", { force: true });
+  assert.match(undo.error ?? "", /above the absolute limit of 1000/);
+  assert.equal(h.db.adsquads.big.daily_budget_micro, null, "the 2000 a day was not put back");
+});
+
+test("F9: a dynamic template that does not say which account it belongs to is refused", async () => {
+  const w = sampleWorld();
+  w.dynamic_templates.dtq = { id: "dtq", name: "No account", layout: "AUTOMATIC" };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_create_creative", { creative_type: "DYNAMIC_PRODUCT", name: "Dyn", headline: "Hi", dynamic_template_id: "dtq", product_set_id: "ps1" });
+  assert.match(r.error ?? "", /cannot be verified/);
+  assert.equal(h.writes().length, 0);
+});
+
+test("F15: an ad schedule naming only some days is accepted through the tool, as documented", async () => {
+  const w = sampleWorld();
+  w.adsquads.s1 = { ...w.adsquads.s1, daily_budget_micro: null, lifetime_budget_micro: 100e6 };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_set_ad_schedule", { adsquad_id: "s1", schedule: { friday: [18, 19] } });
+  assert.ok(!r.error, r.error);
+  assert.ok(r.data.approval_token, "a preview with an approval token");
+  assert.doesNotMatch(JSON.stringify(r.data), /schedule\.monday/);
+});
+
+import { mkdtempSync as mk } from "node:fs";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { SnapClient } from "../src/snap.js";
+import { registerTools } from "../src/tools.js";
+
+// A server whose Snap answers the login's list of ad accounts, so snap_connect's account step can run.
+async function connectServer({ env = {}, account = "acc-1", elicit } = {}) {
+  const dir = mk(join(tmpdir(), "connect-"));
+  const file = join(dir, ".env");
+  writeFileSync(file, "SNAP_REFRESH_TOKEN=existing-token-1234567890\n");
+  const json = (b, s = 200) => ({ ok: s < 300, status: s, json: async () => b, headers: { get: () => null } });
+  const fetchImpl = async (url) => {
+    const u = new URL(String(url));
+    if (u.hostname.includes("accounts")) return json({ access_token: "t", expires_in: 1800 });
+    if (u.pathname.endsWith("/me/organizations")) return json({ organizations: [{ organization: { name: "Org", ad_accounts: [{ id: "acc-1", name: "One", status: "ACTIVE", currency: "USD" }, { id: "acc-2", name: "Two", status: "ACTIVE", currency: "USD" }] } }] });
+    return json({}, 404);
+  };
+  const full = { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "r", SNAP_LOG_FILE: join(dir, "log.jsonl"), ...(account ? { SNAP_AD_ACCOUNT_ID: account } : {}), ...env };
+  const server = new McpServer({ name: "t", version: "1" });
+  registerTools(server, new SnapClient({ env: full, fetchImpl, sleep: async () => {} }), full);
+  const client = new Client({ name: "c", version: "1" }, elicit ? { capabilities: { elicitation: { form: {} } } } : undefined);
+  if (elicit) client.setRequestHandler(ElicitRequestSchema, async (req) => elicit(req.params));
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const call = async (args) => {
+    const old = process.env.SNAP_ENV_FILE;
+    process.env.SNAP_ENV_FILE = file;
+    try {
+      const r = await client.callTool({ name: "snap_connect", arguments: args });
+      return { error: r.isError ? r.content[0].text : undefined, text: r.content?.[0]?.text, saved: readFileSync(file, "utf8") };
+    } finally {
+      if (old === undefined) delete process.env.SNAP_ENV_FILE;
+      else process.env.SNAP_ENV_FILE = old;
+    }
+  };
+  return { client, call };
+}
+
+test("F6: snap_connect is marked destructive", async () => {
+  const { client } = await connectServer();
+  const tool = (await client.listTools()).tools.find((x) => x.name === "snap_connect");
+  assert.equal(tool.annotations.destructiveHint, true);
+});
+
+test("F6: read-only mode refuses to switch the ad account once one is set, and writes nothing", async () => {
+  const { call } = await connectServer({ env: { SNAP_READ_ONLY: "1" } });
+  const r = await call({ ad_account_id: "acc-2" });
+  assert.match(r.error ?? "", /SNAP_READ_ONLY is on, so this server will not switch the ad account to Two/);
+  assert.doesNotMatch(r.saved, /SNAP_AD_ACCOUNT_ID/);
+});
+
+test("F6: the first connection (no ad account set yet) works even in read-only mode, and choosing the current account is not a switch", async () => {
+  const fresh = await connectServer({ env: { SNAP_READ_ONLY: "1" }, account: null });
+  const r = await fresh.call({ ad_account_id: "acc-2" });
+  assert.ok(!r.error, r.error);
+  assert.match(r.saved, /SNAP_AD_ACCOUNT_ID=acc-2/);
+  const same = await connectServer({ env: { SNAP_READ_ONLY: "1" } });
+  const again = await same.call({ ad_account_id: "acc-1" });
+  assert.ok(!again.error, again.error);
+});
+
+test("F6: with human approval on, switching the account asks the person; a refusal writes nothing, an approval saves it", async () => {
+  const asked = [];
+  const no = await connectServer({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async (p) => { asked.push(p.message); return { action: "decline" }; } });
+  const refused = await no.call({ ad_account_id: "acc-2" });
+  assert.ok(refused.error);
+  assert.match(asked[0], /snap_connect/);
+  assert.match(asked[0], /switch the ad account to Two/);
+  assert.doesNotMatch(refused.saved, /SNAP_AD_ACCOUNT_ID/);
+  const yes = await connectServer({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => ({ action: "accept", content: { approve: true } }) });
+  const ok = await yes.call({ ad_account_id: "acc-2" });
+  assert.ok(!ok.error, ok.error);
+  assert.match(ok.saved, /SNAP_AD_ACCOUNT_ID=acc-2/);
+});
+
+import { loadPolicy } from "../src/policy.js";
+
+test("F7: the Desktop extension has an optional 'Ask me before every change' setting that maps to human approval", () => {
+  const m = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
+  assert.equal(m.user_config.human_approval.type, "boolean");
+  assert.notEqual(m.user_config.human_approval.required, true, "a new required setting would stop upgraded installs from starting");
+  assert.equal(m.server.mcp_config.env.SNAP_HUMAN_APPROVAL, "${user_config.human_approval}");
+  const words = `${m.long_description} ${m.user_config.read_only.description}`;
+  assert.doesNotMatch(words, /needs your approval/, "the text no longer claims a person approves every change when that is off");
+  assert.match(m.long_description, /Ask me before every change/);
+});
+
+test("F7: the extension's true and false values mean elicit and off", () => {
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "true" }).humanApproval, "elicit");
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "false" }).humanApproval, "off");
+  assert.equal(loadPolicy({ SNAP_HUMAN_APPROVAL: "elicit" }).humanApproval, "elicit");
+  assert.equal(loadPolicy({}).humanApproval, "off");
+  assert.throws(() => loadPolicy({ SNAP_HUMAN_APPROVAL: "maybe" }), /SNAP_HUMAN_APPROVAL/);
+});
+
+import { readIdentifiers } from "../src/customer-list.js";
+
+test("F12: an error about a missing column never repeats the file's own header text", () => {
+  const f = join(mkdtempSync(join(tmpdir(), "poc-")), "notes.txt");
+  writeFileSync(f, "password hunter2,bank pin\nfoo,bar\n");
+  assert.throws(() => readIdentifiers(f, { kind: "email" }), (e) => /among the file's 2 columns/.test(e.message) && !/hunter2|bank pin|password/.test(e.message));
+});
+
+test("F14: names with line breaks cannot add fake lines to the approval question", async () => {
+  const asked = [];
+  const h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async (p) => { asked.push(p.message); return { action: "accept", content: { approve: true } }; } });
+  const evil = "Evil\nTHIS ADDS 0 PER DAY\nTo approve, tick the box.";
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: evil });
+  assert.ok(!applied.error, applied.error);
+  const lines = asked[0].split("\n");
+  assert.ok(lines.every((l) => !l.startsWith("THIS ADDS")), "no line begins with a forged amount");
+  assert.equal(lines.filter((l) => l.startsWith("To approve")).length, 1, "only the real instruction line");
+  assert.ok(lines.some((l) => l.startsWith("Change:") && l.includes("Evil THIS ADDS 0 PER DAY")), "the name is on one line");
+});
+
+import { EventEmitter } from "node:events";
+import { checkUrl, isPrivateAddress, pinnedGet } from "../src/checks.js";
+
+test("F11: the link checker connects to the address it checked, not to a fresh lookup (DNS rebinding)", async () => {
+  let lookups = 0;
+  const seen = [];
+  const lookup = async () => [{ address: lookups++ === 0 ? "93.184.216.34" : "10.0.0.5", family: 4 }]; // public for the check, private afterwards
+  const pinned = async (u, { address, family }) => (seen.push({ host: u.hostname, address, family }), { status: 200, headers: { get: () => null }, body: { cancel: async () => {} } });
+  const r = await checkUrl("https://rebind.example/page", { lookup, pinned });
+  assert.equal(r.verdict, "OK");
+  assert.equal(lookups, 1, "the name is looked up once");
+  assert.deepEqual(seen, [{ host: "rebind.example", address: "93.184.216.34", family: 4 }], "the connection uses the checked address");
+});
+
+test("F11: pinnedGet connects to the given address, keeps the real name for the certificate, and keeps the path", async () => {
+  let options;
+  const request = (o, onResponse) => {
+    options = o;
+    const req = new EventEmitter();
+    req.end = () => onResponse({ statusCode: 301, headers: { location: "https://example.com/next" }, resume() {}, destroy() {} });
+    req.destroy = () => {};
+    return req;
+  };
+  const res = await pinnedGet(new URL("https://shop.example/a/b?x=1"), { address: "93.184.216.34", family: 4, timeoutMs: 1000, headers: { Accept: "*/*" } }, { request });
+  assert.equal(res.status, 301);
+  assert.equal(res.headers.get("Location"), "https://example.com/next");
+  assert.equal(options.hostname, "shop.example");
+  assert.equal(options.servername, "shop.example");
+  assert.equal(options.path, "/a/b?x=1");
+  await new Promise((ok) => options.lookup("shop.example", {}, (e, a, f) => (assert.deepEqual([e, a, f], [null, "93.184.216.34", 4]), ok())));
+  await new Promise((ok) => options.lookup("shop.example", { all: true }, (e, list) => (assert.deepEqual(list, [{ address: "93.184.216.34", family: 4 }]), ok())));
+});
+
+test("F11: a name that resolves to a private address is still not contacted, and NAT64 counts as private", async () => {
+  let contacted = false;
+  const r = await checkUrl("https://internal.example/", { lookup: async () => [{ address: "10.1.2.3", family: 4 }], pinned: async () => ((contacted = true), {}) });
+  assert.equal(r.verdict, "UNSAFE_TARGET");
+  assert.equal(contacted, false);
+  assert.equal(isPrivateAddress("64:ff9b::a00:1"), true);
+  assert.equal(isPrivateAddress("2606:4700::1111"), false);
+});
+
+test("F10: a pixel or audience id that is not this ad account's is refused", async () => {
+  const w = sampleWorld();
+  w.pixels = { "pix-own": { id: "pix-own", name: "Own pixel", status: "ACTIVE" } };
+  const h = await setup({ world: w });
+  const foreignAudience = await h.call("snap_exclude_segments", { adsquad_id: "s1", segment_ids: ["999999"] });
+  assert.match(foreignAudience.error ?? "", /Audience 999999 is not one of this ad account's audiences/);
+  const foreignPixel = await h.call("snap_create_pixel_audience", { name: "Cart abandoners", events: ["ADD_CART"], pixel_id: "someone-elses-pixel" });
+  assert.match(foreignPixel.error ?? "", /Pixel someone-elses-pixel is not one of this ad account's pixels/);
+  const targeting = await h.call("snap_set_targeting", { adsquad_id: "s1", include_segments: ["999999"] });
+  assert.match(targeting.error ?? "", /Audience 999999/);
+  const bulk = await h.call("snap_exclude_segments", { adsquad_ids: ["s1"], segment_ids: ["999999"] });
+  assert.match(bulk.error ?? "", /Audience 999999/);
+  assert.equal(h.writes().length, 0);
+  const own = await h.call("snap_exclude_segments", { adsquad_id: "s1", segment_ids: ["111"] });
+  assert.ok(own.data?.approval_token, JSON.stringify(own).slice(0, 200));
+  const ownPixel = await h.call("snap_create_pixel_audience", { name: "Cart abandoners", events: ["ADD_CART"], pixel_id: "pix-own" });
+  assert.ok(ownPixel.data?.approval_token, JSON.stringify(ownPixel).slice(0, 200));
+});
+
+test("F16: a plain end date includes that whole day; a plain start date is the start of the day", async () => {
+  const h = await setup({ env: { SNAP_REPORT_UTC_OFFSET: "+03:00" } });
+  await h.raw("snap_get_stats", { entity: "campaign", id: "c1", start_time: "2026-10-30", end_time: "2026-10-30" });
+  const call = h.calls.filter((c) => c.path === "/campaigns/c1/stats").at(-1);
+  assert.equal(call.query.start_time, "2026-10-30T00:00:00+03:00");
+  assert.equal(call.query.end_time, "2026-10-31T00:00:00+03:00", "ending on the 30th includes the 30th");
+  await h.raw("snap_get_stats", { entity: "campaign", id: "c1", start_time: "2026-12-31", end_time: "2026-12-31" });
+  assert.equal(h.calls.filter((c) => c.path === "/campaigns/c1/stats").at(-1).query.end_time, "2027-01-01T00:00:00+03:00", "across a year end");
+});
+
+test("F16: a refresh token rotated by Snap is kept, in both login modes, and only if it looks like a token", async () => {
+  const json = (b, s = 200) => ({ ok: s < 300, status: s, json: async () => b, headers: { get: () => null } });
+  const saved = [];
+  const own = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "old-refresh-token-1" }, fetchImpl: async () => json({ access_token: "a", expires_in: 1800, refresh_token: "new-refresh-token-2" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  assert.equal(await own.accessToken(), "a");
+  assert.deepEqual(saved, ["new-refresh-token-2"]);
+  assert.equal(own.env.SNAP_REFRESH_TOKEN, "new-refresh-token-2");
+  const brokered = new SnapClient({ env: { SNAP_REFRESH_TOKEN: "old-refresh-token-1", SNAP_BROKER_URL: "https://login.example" }, fetchImpl: async () => json({ access_token: "b", expires_in: 1800, refresh_token: "brokered-new-token-3" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  assert.equal(await brokered.accessToken(), "b");
+  assert.equal(saved.at(-1), "brokered-new-token-3");
+  const odd = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "old-refresh-token-1" }, fetchImpl: async () => json({ access_token: "c", expires_in: 1800, refresh_token: "has a space\nSNAP_X=1" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  await odd.accessToken();
+  assert.equal(saved.length, 2, "a value that does not look like a token is ignored");
+  const same = new SnapClient({ env: { SNAP_CLIENT_ID: "i", SNAP_CLIENT_SECRET: "s", SNAP_REFRESH_TOKEN: "same-refresh-token-1" }, fetchImpl: async () => json({ access_token: "d", expires_in: 1800, refresh_token: "same-refresh-token-1" }), onNewRefreshToken: (t) => saved.push(t), sleep: async () => {} });
+  await same.accessToken();
+  assert.equal(saved.length, 2, "an unchanged token is not saved again");
+});
+
+import { downloadAsyncReport } from "../src/async-report.js";
+import { createWithAutoStrip } from "../src/creative-tools.js";
+import { ApprovalStore } from "../src/approval.js";
+
+test("design: a report download is not saved when it redirects or is over the size limit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dl-"));
+  const client = { request: async () => ({ async_stats_report_results: [{ async_stats_report_result: { async_status: "COMPLETED", result: "https://storage.googleapis.com/snap-reports/r.csv" } }] }) };
+  const base = { entity: "adaccount", id: "a", report_run_id: "RUN1", dir };
+  // Sanity: the same setup downloads a normal file, so the refusals below are the limits and not a broken test.
+  const fine = await downloadAsyncReport(client, { ...base, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => "id,spend\n1,10\n" }) });
+  assert.equal(fine.downloaded, true);
+  let sawManual = false;
+  await assert.rejects(downloadAsyncReport(client, { ...base, fetchImpl: async (u, o) => ((sawManual = o?.redirect === "manual"), { ok: false, status: 302, headers: { get: () => "http://169.254.169.254/" }, text: async () => "" }) }), /redirected \(302\); redirects are not followed/);
+  assert.equal(sawManual, true, "redirects are asked not to be followed");
+  await assert.rejects(downloadAsyncReport(client, { ...base, maxBytes: 10, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: (k) => (k === "content-length" ? "999" : null) }, text: async () => "x".repeat(999) }) }), /limit; not downloaded/);
+  await assert.rejects(downloadAsyncReport(client, { ...base, maxBytes: 10, fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => "x".repeat(999) }) }), /over the .* limit; not saved/);
+});
+
+test("design: auto-strip removes only fields Snap computes, never one the person chose", async () => {
+  const seen = [];
+  const client = { createEntity: async (entity, obj) => { seen.push(Object.keys(obj)); throw new Error("Snap API POST failed (400): not allowed : [headline]"); } };
+  await assert.rejects(createWithAutoStrip(client, "creative", { ad_account_id: "a", headline: "Keep me", name: "n" }), /not allowed : \[headline\]/);
+  assert.equal(seen.length, 1, "no retry without the headline");
+  let calls = 0;
+  const ok = { createEntity: async (entity, obj) => { calls++; if ("delivery_status" in obj) throw new Error("not allowed : [delivery_status]"); return { id: "x" }; } };
+  const r = await createWithAutoStrip(ok, "creative", { ad_account_id: "a", name: "n", delivery_status: "VALID" });
+  assert.deepEqual(r.stripped, ["delivery_status"]);
+  assert.equal(calls, 2);
+});
+
+test("design: the approval store keeps far more previews than a person can read at once", () => {
+  const store = new ApprovalStore({});
+  const tokens = Array.from({ length: 600 }, (_, i) => store.issue("snap_rename", `binding-${i}`, {}).token);
+  assert.doesNotThrow(() => store.consume("snap_rename", tokens[0], "binding-0", {}), "the oldest of 600 previews still works");
+});
+
+test("design: copying into an existing campaign shows the ad squads already there before confirming", async () => {
+  const w = sampleWorld();
+  w.campaigns.cx2 = { id: "cx2", name: "Half-done copy", status: "PAUSED", ad_account_id: ACC, updated_at: "t0" };
+  w.adsquads.pre = { id: "pre", name: "Already here", status: "ACTIVE", campaign_id: "cx2", daily_budget_micro: 77e6, bid_micro: 2e6, targeting: {}, updated_at: "t0" };
+  const h = await setup({ world: w });
+  const r = await h.call("snap_copy_campaign", { campaign_id: "c1", new_name: "Copy of c1", resume_campaign_id: "cx2" });
+  assert.ok(r.data?.approval_token, JSON.stringify(r).slice(0, 300));
+  assert.deepEqual(r.data.already_in_the_target_campaign, [{ id: "pre", name: "Already here", status: "ACTIVE", daily_budget: 77 }]);
+  assert.match(r.data.reuse_note, /reused as they are/);
+  const plain = await h.call("snap_copy_campaign", { campaign_id: "c1", new_name: "Copy of c1 b" });
+  assert.equal(plain.data.already_in_the_target_campaign, undefined, "a normal copy has nothing to show");
+});

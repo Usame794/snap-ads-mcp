@@ -11,12 +11,12 @@ import { SnapClient } from "../../src/snap.js";
 import { registerTools } from "../../src/tools.js";
 
 export const ACC = "acc-1";
-const KIND = { campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media", creative_elements: "creative_element", interaction_zones: "interaction_zone", catalogs: "catalog", product_sets: "product_set", dynamic_templates: "dynamic_template" };
+const KIND = { pixels: "pixel", campaigns: "campaign", adsquads: "adsquad", ads: "ad", creatives: "creative", segments: "segment", media: "media", creative_elements: "creative_element", interaction_zones: "interaction_zone", catalogs: "catalog", product_sets: "product_set", dynamic_templates: "dynamic_template" };
 const PARENT_KEY = { adsquads: "campaign_id", ads: "ad_squad_id", product_sets: "catalog_id" };
 
 // world = { campaigns: {id: obj}, adsquads: {...}, ads: {...}, creatives: {...}, segments: {...}, media: {...}, currency }
 export function fakeSnap(world = {}) {
-  const db = { campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, creative_elements: {}, interaction_zones: {}, catalogs: {}, product_sets: {}, dynamic_templates: {}, currency: "USD", ...world };
+  const db = { pixels: {}, campaigns: {}, adsquads: {}, ads: {}, creatives: {}, segments: {}, media: {}, creative_elements: {}, interaction_zones: {}, catalogs: {}, product_sets: {}, dynamic_templates: {}, currency: "USD", ...world };
   const calls = [];
   let seq = 0;
   const hooks = { failGetAfterPut: false, failNextWrite: null };

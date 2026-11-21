@@ -64,9 +64,8 @@ export function readIdentifiers(filePath, { kind, column, defaultCountryCode }) 
   const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
   let idx = column ? header.indexOf(String(column).trim().toLowerCase()) : header.findIndex((h) => (kind === "email" ? /e-?mail/.test(h) : /phone|mobile|mob|tel|cell|جوال|هاتف/.test(h)));
   if (idx < 0) {
-    // Header names only, shortened, and never anything that looks like a value (an address, a number, a key=value pair).
-    const names = header.slice(0, 20).map((h) => (/[@=]|\d{6,}/.test(h) ? "(hidden)" : h.slice(0, 30)));
-    throw new Error(`Could not find a ${kind} column. Columns are: ${names.join(", ")}${header.length > 20 ? ", ..." : ""}. Pass \`column\`.`);
+    // The file's own header text is never put in the answer: the model reads this answer, and the file may not be a customer export at all.
+    throw new Error(`Could not find a ${kind} column among the file's ${header.length} columns. Pass \`column\` with the exact header name from your file (the first row).`);
   }
   if (lines.length - 1 > MAX_ROWS) throw new Error(`Too many rows (${lines.length - 1}, limit ${MAX_ROWS})`);
   const seen = new Set();

@@ -209,3 +209,26 @@ Not done yet (waiting for your decision, or optional): A2/A3/A4 consolidation (a
 | G8 | PASS | Pause, Resume and Apply call the same tools with the same preview, approval token, limits and read-only rule (section E). |
 
 Tested in a real browser (Chromium) with a fake chat app speaking the MCP Apps protocol and the real server behind it. **Not tested in Claude Desktop itself**: whether it shows the cards for a local extension has to be checked there.
+
+## Independent audit of 0.9.6: response
+An outside reviewer audited 0.9.6 (16 findings). Each was reproduced against this code first (11 with a proof-of-concept test that passed while the bug existed); the fixes are in `test/audit-fixes.test.js`.
+
+| ID | Severity | Status |
+|---|---|---|
+| F1 stale update after approval | High | Fixed (re-read after the question; updated_at check) |
+| F2 forged login token into .env | High | Fixed (token shape check; no line breaks in settings values) |
+| F3 campaign-level budget on enable | Medium-high | Fixed |
+| F4 board hid the budget on Resume | Medium | Fixed by the interactive patch; regression test in `interactive-browser.test.js` |
+| F5 `snap_api_get` encoded dots | Medium-low | Fixed |
+| F6 `snap_connect` bypassed safeguards | Medium | Fixed |
+| F7 approval off, wording | Medium | Setting added; wording corrected; default stays off (see SECURITY.md) |
+| F8 undo with force | Low-medium | Fixed |
+| F9 template ownership | Low | Fixed |
+| F10 ids not checked | Low | Pixels and audiences fixed; brand profile and media ids still rely on Snap refusing a foreign id |
+| F11 link checker rebinding | Low | Fixed (pinned connection); not tested against real DNS from this environment |
+| F12 local files / header echo | Low | Header echo fixed; `SNAP_MEDIA_DIR` stays opt-in so existing uploads keep working |
+| F13 login service renew endpoint | Medium (design) | **Not fixed in code**: needs a rate limit in the deployed service; documented in SECURITY.md |
+| F14 untrusted names in the question | Low | Fixed |
+| F15 partial ad schedule | Low | Fixed |
+| F16 plain end date, rotated tokens | Info | Fixed |
+| Design items | | Download redirects and size, auto-strip, approval store size, copy reuse: fixed. Single-log 24-hour limit, `postMessage` target `*`: documented. |

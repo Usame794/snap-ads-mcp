@@ -25,6 +25,8 @@ export function planCloneCreative(source, { name, headline, url, callToAction })
   return { obj, summary: { name: obj.name, type: source.type, headline: obj.headline, call_to_action: obj.call_to_action, url: obj.web_view_properties?.url } };
 }
 
+const PROTECTED_FIELDS = new Set(["name", "headline", "brand_name", "call_to_action", "type", "url", "web_view_properties", "deep_link_properties", "app_install_properties", "top_snap_media_id", "media_id", "profile_properties", "preview_creative_id", "daily_budget_micro", "lifetime_budget_micro", "bid_micro", "targeting", "status", "campaign_id", "ad_squad_id", "creative_id", "collection_properties", "composite_properties", "dynamic_template_id", "product_set_id", "catalog_id"]);
+
 // Snap rejects some returned-only fields on create; remove each one it names and retry.
 export async function createWithAutoStrip(client, entity, obj, { maxRetries = 8 } = {}) {
   const work = structuredClone(obj);
@@ -35,7 +37,9 @@ export async function createWithAutoStrip(client, entity, obj, { maxRetries = 8 
       return { created, stripped };
     } catch (e) {
       const m = e.message.match(/not allowed : \[(\w+)\]/);
-      if (!m || stripped.includes(m[1])) throw e;
+      // Only fields Snap itself computes are removed. Anything the person chose (the link, the headline, the budget, the media) is
+      // never dropped silently: if Snap names one of those, the error is returned as it is.
+      if (!m || stripped.includes(m[1]) || PROTECTED_FIELDS.has(m[1])) throw e;
       stripped.push(m[1]);
       deleteDeep(work, m[1]);
     }

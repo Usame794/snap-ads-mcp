@@ -58,7 +58,7 @@ export function explainChange(before, after) {
 }
 
 export class ApprovalStore {
-  constructor({ ttlMs = 600_000, repeatWindowMs = 600_000, now = Date.now, max = 500 } = {}) {
+  constructor({ ttlMs = 600_000, repeatWindowMs = 600_000, now = Date.now, max = 2000 } = {}) {
     this.ttlMs = ttlMs;
     this.repeatWindowMs = repeatWindowMs;
     this.now = now;

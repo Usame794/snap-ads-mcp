@@ -61,10 +61,10 @@ test("F-17: the customer-list tool reads spreadsheet exports only and never echo
   writeFileSync(secret, "SNAP_CLIENT_SECRET=AbC123xyz,token=XyZ\nline2\n");
   assert.throws(() => readIdentifiers(secret, { kind: "email" }), (e) => /must be a \.csv/.test(e.message) && !/abc123|snap_client_secret/i.test(e.message));
   for (const p of ["/etc/passwd", join(dir, "id_rsa"), join(dir, "notes.md")]) assert.throws(() => readIdentifiers(p, { kind: "email" }), /must be a \.csv/);
-  // a .csv whose first line holds values instead of headers: the hint hides them
+  // a .csv whose first line holds values instead of headers: the error never repeats the first line
   const odd = join(dir, "odd.csv");
   writeFileSync(odd, "someone@example.com,key=value123,0501234567,Customer Name\nrow2,a,b,c\n");
-  assert.throws(() => readIdentifiers(odd, { kind: "phone", column: "missing" }), (e) => /Columns are: \(hidden\), \(hidden\), \(hidden\), customer name/.test(e.message));
+  assert.throws(() => readIdentifiers(odd, { kind: "phone", column: "missing" }), (e) => /among the file's 4 columns/.test(e.message) && !/someone@example|key=value|0501234567|customer name/i.test(e.message));
   // normal use is unchanged
   const ok = join(dir, "list.CSV");
   writeFileSync(ok, "Name,Email\nA,a@example.com\nB,A@Example.com \nC,not-an-email\n");

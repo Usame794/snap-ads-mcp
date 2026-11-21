@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadEnv } from "./env.js";
+import { loadEnv, setEnvValue } from "./env.js";
 import { loadPolicy } from "./policy.js";
 import { SnapClient } from "./snap.js";
 import { registerTools } from "./tools.js";
@@ -25,6 +25,6 @@ try {
 const settings = { ...process.env };
 const server = new McpServer({ name: "ads-mcp-for-snapchat", version: "0.9.8" });
 // Only the OAuth credentials are re-read from .env when a token is needed, so replacing them does not require a restart.
-const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), timeoutMs: policy.httpTimeoutMs });
+const client = new SnapClient({ beforeToken: () => loadEnv(undefined, { override: true }), onNewRefreshToken: (t) => setEnvValue("SNAP_REFRESH_TOKEN", t), timeoutMs: policy.httpTimeoutMs });
 registerTools(server, client, settings);
 await server.connect(new StdioServerTransport());
