@@ -93,3 +93,32 @@ test("F3: the first ad squad to deliver under an ACTIVE campaign with its own bu
   const h2 = await setup({ world: big, env: { SNAP_MAX_DAILY_BUDGET: "100" } });
   assert.match((await h2.call("snap_set_status", { entity: "adsquad", id: "q1", status: "ACTIVE" })).error ?? "", /campaign "CBO" has a daily budget of 5000/);
 });
+
+test("F1: a target edited during the human approval question is refused, not overwritten", async () => {
+  let h;
+  h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => {
+    h.db.campaigns.c1 = { ...h.db.campaigns.c1, status: "PAUSED", updated_at: "t-human" }; // paused in Ads Manager while the dialog is open
+    return { action: "accept", content: { approve: true } };
+  } });
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  assert.match(applied.error ?? "", /changed while the approval question was open/);
+  assert.equal(h.db.campaigns.c1.status, "PAUSED", "the person's pause stands");
+  assert.equal(h.db.campaigns.c1.name, "Campaign c1", "the rename was not applied");
+  assert.equal(h.writes().length, 0);
+});
+
+test("F1: an unchanged item is still applied after the approval question", async () => {
+  const h = await setup({ env: { SNAP_HUMAN_APPROVAL: "elicit" }, elicit: async () => ({ action: "accept", content: { approve: true } }) });
+  const { applied } = await h.twoStep("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  assert.ok(!applied.error, applied.error);
+  assert.equal(h.db.campaigns.c1.name, "Renamed c1");
+});
+
+test("F1: without the approval question, a change made between the preview and the apply is still not overwritten", async () => {
+  const h = await setup();
+  const preview = await h.call("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1" });
+  h.db.campaigns.c1 = { ...h.db.campaigns.c1, status: "PAUSED", updated_at: "t-other" };
+  const applied = await h.call("snap_rename", { entity: "campaign", id: "c1", new_name: "Renamed c1", confirm: true, approval_token: preview.data.approval_token });
+  assert.ok(applied.error, "refused");
+  assert.equal(h.db.campaigns.c1.status, "PAUSED");
+});

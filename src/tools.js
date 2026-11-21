@@ -349,7 +349,7 @@ export function registerTools(server, client, env = process.env) {
             approvals.precheck(name, approval_token);
           }
           await ensureCurrency();
-          const p = await prepare(params);
+          let p = await prepare(params);
           for (const t of p.targets ?? []) await ownership.assert(t.entity, t.obj, account());
           const targetIds = p.targetIds ?? (p.targets ?? []).map((t) => t.obj.id);
           const added = round2(p.addedDailyBudget ?? 0);
@@ -386,6 +386,14 @@ export function registerTools(server, client, env = process.env) {
             if (repeat) throw new Error(`An identical ${name} request was already executed ${repeat.seconds_ago}s ago (${JSON.stringify(repeat.summary)}). Not repeating it. If a second one is really wanted, give it a different name or wait ${policy.repeatWindowSeconds}s.`);
           }
           await humanApproval(name, p, targetIds, added);
+          if (policy.humanApproval === "elicit") {
+            // A person may take minutes to answer. Read everything again and compare with what they were shown: if anything the change
+            // depends on moved meanwhile (a campaign paused in Ads Manager, a budget edited), nothing is sent.
+            const again = await prepare(params);
+            const rebound = digest({ requestDigest, state: stabilizeState(again.state ?? null) });
+            if (again.blocked || rebound !== binding) throw new Error("Not applied: the item changed while the approval question was open (someone edited it, or it is no longer allowed). Nothing was sent. Preview it again.");
+            p = again;
+          }
           const event = { tool: name, account: cfg.account ?? null, targets: targetIds };
           // Checked again and recorded in one synchronous step, so two calls running at once cannot both slip under the limit.
           spendLedger(added);

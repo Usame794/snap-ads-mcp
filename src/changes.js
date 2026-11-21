@@ -243,6 +243,12 @@ export const previewOf = (p) => ({ applied: false, dry_run: true, target: p.labe
 // a failed read-back or a failed log write is reported in the result, so an applied change is never mistaken for a failure.
 export async function executeChange({ client, prepared, logFile, logExtra }) {
   const { entity, id, current, patch, summary, label } = prepared;
+  // The update sends the whole object that was read for the preview. If someone changed the item since (paused it, edited a budget),
+  // sending it would silently undo their change, so refuse and ask for a new preview.
+  const fresh = await client.getEntity(entity, id);
+  if (fresh?.updated_at !== undefined && current.updated_at !== undefined && fresh.updated_at !== current.updated_at) {
+    throw new Error(`Not applied: ${label} was changed by someone else after the preview (its updated_at moved). Nothing was sent. Preview it again.`);
+  }
   const updated = await client.updateEntity(entity, { ...current, ...patch });
   let after = null;
   let verifyError;
